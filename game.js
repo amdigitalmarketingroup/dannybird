@@ -57,7 +57,7 @@
   const BIRD_DRAW_H = 58;   // alto del sprite dibujado
   const BIRD_HIT_R = 19;    // radio de colisión (más chico que el dibujo = justo)
   const READY_FLOAT = 7;    // amplitud del bobbing en la pantalla de inicio
-  const WINGBEAT = 4;       // aleteos por segundo (swap entre los 2 frames de alas)
+  const PUFF_LIFE = 0.34;   // vida del puff de pedo (s): fade-out en ~340ms
 
   // helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -82,8 +82,9 @@
   let overAt = 0;            // timestamp del game over (cooldown anti-restart accidental)
   const RESTART_DELAY = 550; // ms antes de aceptar reinicio
 
-  const bird = { x: 0, y: 0, vy: 0, angle: 0, wing: 0, pump: 0 };
+  const bird = { x: 0, y: 0, vy: 0, angle: 0, pump: 0 };
   let pipes = [];
+  let puffs = [];           // partículas de pedo (feedback del impulso)
   let groundX = 0;
   let clouds = [];
   let tNow = 0;             // tiempo acumulado (ms) para animaciones
@@ -96,6 +97,7 @@
     bird.vy = 0;
     bird.angle = 0;
     pipes = [];
+    puffs = [];
     score = 0;
     newBest = false;
     flashA = 0;
@@ -145,9 +147,22 @@
 
   // ── input (latencia mínima: actúa en el mismo evento, sin esperar frame) ─────
   function flap() {
-    bird.vy = FLAP_V * S;
-    bird.pump = 1; // aletazo fuerte en el momento del tap
-    playFlap();
+    bird.vy = FLAP_V * S;   // MISMO impulso de siempre (la física NO se toca)
+    bird.pump = 1;          // dispara el squash-and-stretch del cuerpo
+    spawnFart();            // nubecita de pedo por detrás-abajo
+    playFart();             // SFX de pedo cómico
+  }
+  // suelta una nube de pedo por DETRÁS (izquierda, ya que mira a la derecha) y ABAJO,
+  // que se aleja, escala y se desvanece. Puro feedback, no afecta la física.
+  function spawnFart() {
+    puffs.push({
+      x: bird.x - 15 * S, y: bird.y + 13 * S,
+      vx: -rand(55, 90) * S,                 // hacia atrás (izquierda)
+      vy: rand(35, 75) * S,                  // y hacia abajo
+      age: 0, life: PUFF_LIFE * rand(0.85, 1.15),
+      rot: rand(-0.4, 0.4), vrot: rand(-2.5, 2.5),
+      s0: rand(0.45, 0.65), s1: rand(1.15, 1.5), // crece un poco
+    });
   }
   function onPress() {
     unlockAudio();
@@ -216,7 +231,40 @@
       o.start(t); o.stop(t + dur + 0.02);
     } catch (e) { /* audio no crítico */ }
   }
-  const playFlap = () => beep(620, 0.09, 'square', 0.12, 900);
+  // SFX de pedo cómico, sintetizado (sin archivos): sawtooth grave con vibrato
+  // rápido (el "brrrt") + slide hacia abajo + lowpass. Varía un poco por tap para
+  // que no suene idéntico. Reemplaza el antiguo SFX de aleteo.
+  function playFart() {
+    if (!actx || muted) return;
+    try {
+      const t = actx.currentTime;
+      const dur = rand(0.18, 0.24);
+      const f0 = rand(140, 170), f1 = rand(60, 80);
+      const o = actx.createOscillator();
+      const g = actx.createGain();
+      const lp = actx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.setValueAtTime(950, t);
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      // LFO de frecuencia → el vibrato "pffrt"
+      const lfo = actx.createOscillator();
+      const lfoG = actx.createGain();
+      lfo.type = 'square';
+      lfo.frequency.setValueAtTime(rand(19, 26), t);
+      lfo.frequency.linearRampToValueAtTime(rand(9, 13), t + dur);
+      lfoG.gain.setValueAtTime(rand(35, 55), t); // profundidad del wobble (Hz)
+      lfo.connect(lfoG); lfoG.connect(o.frequency);
+      // envolvente: ataque rápido, cuerpo, caída
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.15, t + 0.015);
+      g.gain.setValueAtTime(0.15, t + dur * 0.55);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(lp); lp.connect(g); g.connect(actx.destination);
+      o.start(t); o.stop(t + dur + 0.03);
+      lfo.start(t); lfo.stop(t + dur + 0.03);
+    } catch (e) { /* audio no crítico */ }
+  }
   function playScore() { beep(880, 0.08, 'triangle', 0.14); setTimeout(() => beep(1175, 0.1, 'triangle', 0.14), 70); }
   function playHit() {
     beep(180, 0.18, 'sawtooth', 0.18, 60);
@@ -392,41 +440,57 @@
   );
   document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
-  // ── sprite del jugador (player.png) con fallback procedural ─────────────────
-  const sprite = new Image();         // frame 1: alas extendidas/arriba
+  // ── sprite del jugador (bombita) + nube de pedo, con fallback procedural ─────
+  const sprite = new Image();         // la niña hecha bolita, perfil a la derecha (sin alas)
   let spriteReady = false, spriteFailed = false;
   sprite.onload = () => { spriteReady = true; };
-  sprite.onerror = () => { spriteFailed = true; console.warn('[danny] player.png no cargó, uso carita procedural'); };
-  sprite.src = 'assets/player.png';
+  sprite.onerror = () => { spriteFailed = true; console.warn('[danny] player_bombita.png no cargó, uso carita procedural'); };
+  sprite.src = 'assets/player_bombita.png';
 
-  const sprite2 = new Image();        // frame 2: alas abajo/recogidas (aleteo real)
-  let sprite2Ready = false;
-  sprite2.onload = () => { sprite2Ready = true; };
-  sprite2.onerror = () => { sprite2Ready = false; };
-  sprite2.src = 'assets/player2.png';
+  const fartImg = new Image();        // nubecita de pedo (partícula del impulso)
+  let fartReady = false;
+  fartImg.onload = () => { fartReady = true; };
+  fartImg.onerror = () => { fartReady = false; };
+  fartImg.src = 'assets/fart_puff.png';
 
   function drawBird() {
     const h = BIRD_DRAW_H * S;
     const ratio = spriteReady ? sprite.width / sprite.height : 0.86;
     const w = h * ratio;
-    // aleteo REAL por frames: en la mitad baja del ciclo se muestra el frame de
-    // alas abajo (sprite2); arriba, el de alas extendidas (sprite). Ambos frames
-    // están recortados a la MISMA caja → la cabeza no salta al alternar.
-    const frame = (Math.sin(bird.wing * Math.PI * 2) < 0 && sprite2Ready) ? sprite2 : sprite;
     ctx.save();
     ctx.translate(bird.x, bird.y);
     ctx.rotate(bird.angle);
+    // squash-and-stretch: al impulsar (pump≈1) se estira vertical y se angosta,
+    // luego vuelve solo (pump decae). Solo feedback visual, NO afecta la física.
+    ctx.scale(1 - bird.pump * 0.16, 1 + bird.pump * 0.18);
     if (spriteReady) {
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(frame, -w / 2, -h / 2, w, h);
+      ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
     } else {
-      // fallback: carita simple (círculo + ojo) si player.png falta
+      // fallback: carita simple (círculo + ojo) si el sprite falta
       ctx.fillStyle = '#f7d9a0';
       ctx.beginPath(); ctx.arc(0, 0, h / 2, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#222';
       ctx.beginPath(); ctx.arc(h * 0.18, -h * 0.08, h * 0.08, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
+  }
+
+  // dibuja las nubes de pedo (detrás de la bombita): escalan y se desvanecen
+  function drawPuffs() {
+    if (!fartReady || !puffs.length) return;
+    const baseH = 30 * S, ratio = fartImg.width / fartImg.height;
+    for (const p of puffs) {
+      const k = p.age / p.life;                  // 0..1
+      const sc = lerp(p.s0, p.s1, k);
+      const hh = baseH * sc, ww = hh * ratio;
+      ctx.save();
+      ctx.globalAlpha = clamp(1 - k, 0, 1) * 0.95; // fade-out
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.drawImage(fartImg, -ww / 2, -hh / 2, ww, hh);
+      ctx.restore();
+    }
   }
 
   // ── render de tubos (procedural estilo clásico, verde con tapa y brillo) ─────
@@ -532,10 +596,18 @@
 
   // ── update (fixed step, dt en segundos) ─────────────────────────────────────
   function update(dt) {
-    // aleteo: las alas baten siempre (flutter) y fuerte tras cada tap (pump decae)
-    // las alas baten siempre; tras un tap el aleteo se acelera (pump) y decae
-    if (state !== OVER) bird.wing += dt * WINGBEAT * (1 + bird.pump * 2);
+    // squash-and-stretch: el "pump" salta a 1 en cada tap y decae solo
     bird.pump = Math.max(0, bird.pump - dt * 3.2);
+    // partículas de pedo: se alejan atrás-abajo, se frenan y se desvanecen
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const p = puffs[i];
+      p.age += dt;
+      if (p.age >= p.life) { puffs.splice(i, 1); continue; }
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      const fr = 1 - clamp(dt * 1.6, 0, 1);
+      p.vx *= fr; p.vy *= fr;
+      p.rot += p.vrot * dt;
+    }
     // nubes siempre flotan (decoración)
     for (const c of clouds) {
       c.x -= c.spd * S * dt;
@@ -613,6 +685,7 @@
     drawBackground();
     for (const p of pipes) drawPipe(p);
     drawGround();
+    drawPuffs();   // los pedos van por DETRÁS de la bombita
     drawBird();
     ctx.restore();
 

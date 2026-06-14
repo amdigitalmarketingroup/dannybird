@@ -28,19 +28,23 @@ Cualquier server estático sirve (`npx serve`, `php -S`, etc.).
 - Botón de **mute** arriba a la derecha (silencia música + efectos; se recuerda).
 - El **best score** se guarda en `localStorage`.
 
-## Reemplazar el personaje (player.png)
+## Personaje y feedback
 
-El sprite vive en **`assets/player.png`** (PNG con fondo transparente, vista de
-perfil mirando a la derecha). Para cambiarlo:
+El personaje es **`assets/player_bombita.png`** (la niña hecha bolita, perfil
+mirando a la derecha, sin alas, fondo transparente). El impulso es un **pedo**:
+en cada tap se suelta `assets/fart_puff.png` por detrás-abajo (escala + fade en
+~340ms), suena un SFX de pedo sintetizado y el cuerpo hace squash-and-stretch.
+La física (gravedad, impulso, gap, velocidad) es idéntica a la versión clásica.
 
-1. Reemplaza `assets/player.png` por tu PNG (fondo transparente, mirando a la
-   derecha). Cualquier proporción sirve; el juego lo escala manteniendo el aspecto.
-2. (Opcional) Regenera los iconos PWA desde el nuevo sprite.
+Para cambiar el personaje:
+
+1. Reemplaza `assets/player_bombita.png` por tu PNG (fondo transparente, mirando a
+   la derecha). Cualquier proporción sirve; el juego lo escala manteniendo el aspecto.
+2. (Opcional) Cambia `assets/fart_puff.png` por otra partícula de impulso.
 3. Si cambiaste assets, sube el número de versión del cache en `sw.js`
-   (`const CACHE = 'dannybird-v2'`) para invalidar la versión vieja.
+   (`const CACHE = 'dannybird-vN'`) para invalidar la versión vieja.
 
-Si `player.png` no carga, el juego dibuja una carita procedural de respaldo
-(no rompe).
+Si el sprite no carga, el juego dibuja una carita procedural de respaldo (no rompe).
 
 ## Física (fiel al Flappy original, tuneada por feel)
 
