@@ -58,6 +58,8 @@
   const BIRD_HIT_R = 19;    // radio de colisión (más chico que el dibujo = justo)
   const READY_FLOAT = 7;    // amplitud del bobbing en la pantalla de inicio
   const PUFF_LIFE = 0.34;   // vida del puff de pedo (s): fade-out en ~340ms
+  const CHARGE_POINTS = 10; // el mega-pedo se carga con PUNTOS: 10 puntos = carga llena
+  const HOLD_FIRE_MS = 220; // hold mínimo (ms) para disparar el mega ya cargado
 
   // helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -85,9 +87,17 @@
   const bird = { x: 0, y: 0, vy: 0, angle: 0, pump: 0 };
   let pipes = [];
   let puffs = [];           // partículas de pedo (feedback del impulso)
+  let press = { down: false, t0: 0, fired: false }; // power "mega-pedo": HOLD para usarlo
+  let megaCharge = 0;       // 0..1, se llena con PUNTOS (10 pts = lleno)
+  let scoreAtLastMega = 0;  // score al usar el último mega (para recargar cada 10)
+  let megaQuip = { age: 0, life: 0, msg: '' }; // textito cómico del mega-pedo
   let groundX = 0;
   let clouds = [];
+  let stars = [];           // estrellas (aparecen de noche)
   let tNow = 0;             // tiempo acumulado (ms) para animaciones
+  let skyProg = 0;          // progreso del ciclo día→noche (suave, score/SKY_CYCLE)
+  let nightness = 0;        // 0 = día, 1 = noche cerrada (controla luna/estrellas/Z's)
+  let skyGrad = null, skyKey = '';
   let flashA = 0;          // alpha del flash blanco al chocar
   let shake = 0;           // screen shake al chocar
 
@@ -98,6 +108,10 @@
     bird.angle = 0;
     pipes = [];
     puffs = [];
+    press.down = false; press.fired = false; megaCharge = 0; scoreAtLastMega = 0;
+    megaQuip.life = 0;
+    skyProg = 0;
+    nightness = 0;
     score = 0;
     newBest = false;
     flashA = 0;
@@ -146,23 +160,46 @@
   }
 
   // ── input (latencia mínima: actúa en el mismo evento, sin esperar frame) ─────
+  const MEGA_QUIPS = ['¡MEGA PEDO! 💨', '¡TURBO POMPIS!', '¡PROPULSIÓN! 🚀', '¡A LA LUNA!', '¡CAÑONAZO! 💥', '¡SE OYÓ HASTA ALLÁ!'];
+  // tap normal = MISMO impulso de siempre (la física base NO cambia)
   function flap() {
-    bird.vy = FLAP_V * S;   // MISMO impulso de siempre (la física NO se toca)
-    bird.pump = 1;          // dispara el squash-and-stretch del cuerpo
-    spawnFart();            // nubecita de pedo por detrás-abajo
-    playFart();             // SFX de pedo cómico
+    bird.vy = FLAP_V * S;
+    bird.pump = 1;          // squash-and-stretch
+    spawnFart(false);
+    playFart(false);
   }
-  // suelta una nube de pedo por DETRÁS (izquierda, ya que mira a la derecha) y ABAJO,
-  // que se aleja, escala y se desvanece. Puro feedback, no afecta la física.
-  function spawnFart() {
-    puffs.push({
-      x: bird.x - 15 * S, y: bird.y + 13 * S,
-      vx: -rand(55, 90) * S,                 // hacia atrás (izquierda)
-      vy: rand(35, 75) * S,                  // y hacia abajo
-      age: 0, life: PUFF_LIFE * rand(0.85, 1.15),
-      rot: rand(-0.4, 0.4), vrot: rand(-2.5, 2.5),
-      s0: rand(0.45, 0.65), s1: rand(1.15, 1.5), // crece un poco
-    });
+  // power "mega-pedo": se MANTIENE presionado para cargar y al soltar dispara, escalado
+  // por la carga. Es decisión del jugador (no automático) → no te quita el control.
+  function beginPress() { if (state === PLAYING) { press.down = true; press.t0 = tNow; press.fired = false; } }
+  function endPress() { press.down = false; press.fired = false; }
+  // dispara el mega (solo cuando la carga de 10 puntos está llena): nube grande +
+  // diarrea café + empujón fuerte + textito. Consume la carga (recarga en 10 pts más).
+  function fireMega() {
+    bird.vy = FLAP_V * 2.0 * S; // empujón fuerte (carga llena)
+    bird.pump = 1.9;            // squash marcado
+    spawnFart(true, 1);
+    playFart(true);
+    megaQuip = { age: 0, life: 1.1, msg: MEGA_QUIPS[rand(0, MEGA_QUIPS.length) | 0] };
+  }
+  // suelta pedo por DETRÁS (izquierda, mira a la derecha) y ABAJO: se aleja, escala y
+  // se desvanece. El mega = más nubes y más grandes (según carga), con algunas CAFÉ
+  // (diarrea cómica). Mismo PNG tintado → sin peso extra.
+  function spawnFart(mega, charge) {
+    const c = charge == null ? 1 : clamp(charge, 0, 1);
+    const n = mega ? Math.round(3 + c * 3) : 1; // 3..6 nubes según carga
+    for (let i = 0; i < n; i++) {
+      const big = mega ? (1.4 + c * 1.3) * rand(0.85, 1.15) : 1;
+      puffs.push({
+        x: bird.x - 15 * S + (mega ? rand(-12, 12) * S : 0),
+        y: bird.y + 13 * S + (mega ? rand(-10, 10) * S : 0),
+        vx: -rand(55, 90) * S * (mega ? 1.5 : 1),  // hacia atrás (izquierda)
+        vy: rand(35, 75) * S * (mega ? 1.15 : 1),  // y hacia abajo
+        age: 0, life: PUFF_LIFE * rand(0.85, 1.15) * (mega ? 1.4 : 1),
+        rot: rand(-0.4, 0.4), vrot: rand(-2.5, 2.5),
+        s0: rand(0.45, 0.65) * big, s1: rand(1.15, 1.5) * big, // crece
+        brown: mega && Math.random() < 0.45, // diarrea café en el mega
+      });
+    }
   }
   function onPress() {
     unlockAudio();
@@ -198,14 +235,23 @@
     if (inMuteBtn(px, py)) { toggleMute(); return; }       // tocar el ícono = mute, no vuela
     if (inRankBtn(px, py)) { showRanking(); return; }       // ver ranking, no arranca el juego
     onPress();
+    beginPress(); // mantener presionado = cargar mega-pedo
   }, { passive: false });
-  // teclado: espacio / flecha arriba / W
+  // soltar (en cualquier lado) = disparar el mega si llegó a cargar
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) =>
+    window.addEventListener(ev, endPress));
+  // teclado: espacio / flecha arriba / W (mantener = cargar; soltar = disparar)
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
       e.preventDefault();
+      if (e.repeat) return; // ignorar auto-repeat del SO (un flap por pulsación)
       onPress();
+      beginPress();
     }
   }, { passive: false });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') endPress();
+  });
 
   // ── audio (WebAudio sintetizado, sin archivos, libre de licencia) ───────────
   let actx = null;
@@ -234,31 +280,36 @@
   // SFX de pedo cómico, sintetizado (sin archivos): sawtooth grave con vibrato
   // rápido (el "brrrt") + slide hacia abajo + lowpass. Varía un poco por tap para
   // que no suene idéntico. Reemplaza el antiguo SFX de aleteo.
-  function playFart() {
+  function playFart(mega) {
     if (!actx || muted) return;
     try {
       const t = actx.currentTime;
-      const dur = rand(0.18, 0.24);
-      const f0 = rand(140, 170), f1 = rand(60, 80);
+      // variación por tap para que NO canse: ~25% "squeaky" agudo/corto; el mega es
+      // grave/largo/fuerte. El pitch siempre random dentro de su rango.
+      const squeak = !mega && Math.random() < 0.25;
+      const dur = mega ? rand(0.42, 0.55) : (squeak ? rand(0.10, 0.15) : rand(0.16, 0.26));
+      const f0 = mega ? rand(150, 190) : (squeak ? rand(240, 320) : rand(120, 185));
+      const f1 = mega ? rand(38, 55) : (squeak ? rand(120, 170) : rand(55, 85));
       const o = actx.createOscillator();
       const g = actx.createGain();
       const lp = actx.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.setValueAtTime(950, t);
+      lp.type = 'lowpass'; lp.frequency.setValueAtTime(mega ? 1300 : 950, t);
       o.type = 'sawtooth';
       o.frequency.setValueAtTime(f0, t);
       o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-      // LFO de frecuencia → el vibrato "pffrt"
+      // LFO de frecuencia → el vibrato "pffrt" (más profundo en el mega)
       const lfo = actx.createOscillator();
       const lfoG = actx.createGain();
       lfo.type = 'square';
-      lfo.frequency.setValueAtTime(rand(19, 26), t);
-      lfo.frequency.linearRampToValueAtTime(rand(9, 13), t + dur);
-      lfoG.gain.setValueAtTime(rand(35, 55), t); // profundidad del wobble (Hz)
+      lfo.frequency.setValueAtTime(rand(16, 28), t);
+      lfo.frequency.linearRampToValueAtTime(rand(8, 13), t + dur);
+      lfoG.gain.setValueAtTime(mega ? rand(60, 95) : rand(30, 55), t); // profundidad del wobble (Hz)
       lfo.connect(lfoG); lfoG.connect(o.frequency);
-      // envolvente: ataque rápido, cuerpo, caída
+      // envolvente: ataque rápido, cuerpo, caída (mega suena más fuerte)
+      const peak = mega ? 0.22 : 0.15;
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.15, t + 0.015);
-      g.gain.setValueAtTime(0.15, t + dur * 0.55);
+      g.gain.exponentialRampToValueAtTime(peak, t + 0.015);
+      g.gain.setValueAtTime(peak, t + dur * 0.55);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       o.connect(lp); lp.connect(g); g.connect(actx.destination);
       o.start(t); o.stop(t + dur + 0.03);
@@ -340,7 +391,12 @@
   const ovSave = document.getElementById('ovSave');
   const ovMsg = document.getElementById('ovMsg');
   const ovTitle = document.getElementById('ovTitle');
+  const ovQuip = document.getElementById('ovQuip');
   const ovScores = document.getElementById('ovScores');
+  // frases chistosas de game over (rotan al azar → personalidad sin peso)
+  const GAMEOVER_QUIPS = ['Te quedaste sin gas 💨', 'Aterrizaje de emergencia', 'Plof.',
+    'Se acabó el combustible', 'Necesitas más frijoles 🫘', 'Pedo fallido', 'Game pooover',
+    'Eso olió a derrota', 'Sin gas, sin gloria', 'Reprobaste de aerodinámica'];
   const ovLb = document.getElementById('ovLb');
   const ovRetry = document.getElementById('ovRetry');
   let lbSubmitted = false;
@@ -376,6 +432,8 @@
   function showOver() {
     ovMode = 'over';
     ovTitle.textContent = 'GAME OVER';
+    ovQuip.textContent = GAMEOVER_QUIPS[rand(0, GAMEOVER_QUIPS.length) | 0];
+    ovQuip.classList.remove('hidden');
     ovScores.classList.remove('hidden');
     ovScore.textContent = String(score);
     ovBest.textContent = String(best);
@@ -393,6 +451,7 @@
   function showRanking() {
     ovMode = 'ranking';
     ovTitle.textContent = '🏆 RANKING';
+    ovQuip.classList.add('hidden');
     ovScores.classList.add('hidden');
     ovEntry.classList.add('hidden');
     ovNewbest.classList.add('hidden');
@@ -448,8 +507,21 @@
   sprite.src = 'assets/player_bombita.png';
 
   const fartImg = new Image();        // nubecita de pedo (partícula del impulso)
-  let fartReady = false;
-  fartImg.onload = () => { fartReady = true; };
+  let fartReady = false, fartBrown = null;
+  fartImg.onload = () => {
+    fartReady = true;
+    // versión CAFÉ (diarrea) tintada una sola vez sobre un canvas offscreen → sin peso
+    try {
+      const c = document.createElement('canvas');
+      c.width = fartImg.width; c.height = fartImg.height;
+      const cx = c.getContext('2d');
+      cx.drawImage(fartImg, 0, 0);
+      cx.globalCompositeOperation = 'source-atop'; // tiñe SOLO los pixeles del puff
+      cx.fillStyle = 'rgba(120,72,30,0.92)';
+      cx.fillRect(0, 0, c.width, c.height);
+      fartBrown = c;
+    } catch (e) { fartBrown = null; }
+  };
   fartImg.onerror = () => { fartReady = false; };
   fartImg.src = 'assets/fart_puff.png';
 
@@ -488,9 +560,30 @@
       ctx.globalAlpha = clamp(1 - k, 0, 1) * 0.95; // fade-out
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
-      ctx.drawImage(fartImg, -ww / 2, -hh / 2, ww, hh);
+      ctx.drawImage(p.brown && fartBrown ? fartBrown : fartImg, -ww / 2, -hh / 2, ww, hh);
       ctx.restore();
     }
+  }
+
+  // anillo de carga del mega-pedo: se llena con PUNTOS (10 = lleno). Lleno → pulsa y
+  // muestra "MANTÉN" (mantener presionado lo dispara).
+  function drawCharge() {
+    if (state !== PLAYING || megaCharge <= 0.02) return;
+    const c = megaCharge, ready = c >= 1, rad = BIRD_DRAW_H * 0.72 * S, cx = bird.x, cy = bird.y;
+    ctx.save();
+    ctx.lineWidth = 4 * S; ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke(); // pista
+    ctx.strokeStyle = ready ? '#b4f06a' : 'rgba(150,210,90,0.9)';
+    ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + c * Math.PI * 2); ctx.stroke();
+    if (ready) {
+      ctx.globalAlpha = 0.35 + 0.35 * Math.sin(tNow / 110);
+      ctx.lineWidth = 7 * S; ctx.strokeStyle = '#e9ffc4';
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+    if (ready) text('MANTÉN 💨', cx, cy - rad - 13 * S, 13 * S, '#eaffc4', 'rgba(0,60,0,0.55)');
   }
 
   // ── render de tubos (procedural estilo clásico, verde con tapa y brillo) ─────
@@ -516,10 +609,65 @@
   }
 
   // ── fondo + suelo ────────────────────────────────────────────────────────────
+  // ── ciclo día → atardecer → noche → amanecer (solo fondo, NO toca gameplay) ──
+  const SKY_CYCLE = 48; // puntos por ciclo completo (noche cerrada a la mitad)
+  const SKY_KEYS = [
+    { t: 0.00, top: [78, 192, 240], bot: [170, 228, 247] }, // día
+    { t: 0.25, top: [250, 138, 92], bot: [255, 208, 130] }, // atardecer
+    { t: 0.50, top: [16, 20, 52],   bot: [44, 42, 92] },    // noche
+    { t: 0.75, top: [120, 96, 170], bot: [255, 168, 150] }, // amanecer
+    { t: 1.00, top: [78, 192, 240], bot: [170, 228, 247] }, // día (cierra el ciclo)
+  ];
+  const rgbStr = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+  function skyAt(t) {
+    let a = SKY_KEYS[0], b = SKY_KEYS[SKY_KEYS.length - 1];
+    for (let i = 0; i < SKY_KEYS.length - 1; i++) {
+      if (t >= SKY_KEYS[i].t && t <= SKY_KEYS[i + 1].t) { a = SKY_KEYS[i]; b = SKY_KEYS[i + 1]; break; }
+    }
+    const f = (t - a.t) / (b.t - a.t || 1);
+    const m = (k, i) => Math.round(a[k][i] + (b[k][i] - a[k][i]) * f);
+    return { top: [m('top', 0), m('top', 1), m('top', 2)], bot: [m('bot', 0), m('bot', 1), m('bot', 2)] };
+  }
+
   function drawBackground() {
-    ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H); // gradiente cacheado (no por frame)
-    // nubes
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    const t = skyProg % 1;
+    const sky = skyAt(t);
+    // gradiente del cielo: se reconstruye solo cuando cambia el tono o el tamaño
+    const key = Math.round(t * 200) + '|' + Math.round(H);
+    if (key !== skyKey) {
+      skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+      skyGrad.addColorStop(0, rgbStr(sky.top));
+      skyGrad.addColorStop(1, rgbStr(sky.bot));
+      skyKey = key;
+    }
+    ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, W, H);
+
+    const nn = nightness;
+    // estrellas (titilan) de noche
+    if (nn > 0.04) {
+      if (!stars.length) for (let i = 0; i < 22; i++) stars.push({ x: rand(0, W), y: rand(H * 0.05, H * 0.55), r: rand(0.6, 1.7), ph: rand(0, 6.28) });
+      ctx.fillStyle = '#ffffff';
+      for (const s of stars) {
+        const tw = 0.5 + 0.5 * Math.sin(tNow / 500 + s.ph);
+        ctx.globalAlpha = nn * (0.35 + 0.65 * tw);
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.r * S, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    // luna (arriba a la izquierda, lejos del botón de mute)
+    if (nn > 0.02) {
+      const mx = W * 0.20, my = safeTop + H * 0.14, mr = 26 * S;
+      ctx.globalAlpha = nn;
+      ctx.fillStyle = '#f4f1d0';
+      ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.06)';
+      ctx.beginPath(); ctx.arc(mx + mr * 0.35, my - mr * 0.2, mr * 0.16, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx - mr * 0.25, my + mr * 0.3, mr * 0.12, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // nubes: blancas de día, grisáceas y más tenues de noche
+    const cl = Math.round(255 - nn * 150);
+    ctx.fillStyle = `rgba(${cl},${cl},${Math.min(255, Math.round(cl * 1.03))},${0.85 - nn * 0.35})`;
     for (const c of clouds) {
       const r = 26 * S * c.s;
       ctx.beginPath();
@@ -527,6 +675,23 @@
       ctx.arc(c.x + r * 0.9, c.y + r * 0.2, r * 0.8, 0, Math.PI * 2);
       ctx.arc(c.x - r * 0.9, c.y + r * 0.2, r * 0.7, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Z's de sueño (solo de noche): flotan desde la cabeza y se desvanecen en loop
+  function drawSleepZs() {
+    if (nightness < 0.25 || state === OVER) return;
+    const baseX = bird.x + 16 * S, baseY = bird.y - 18 * S;
+    for (let i = 0; i < 3; i++) {
+      const ph = (tNow / 1300 + i / 3) % 1;
+      const a = Math.sin(ph * Math.PI) * nightness;
+      if (a <= 0.02) continue;
+      ctx.save();
+      ctx.globalAlpha = clamp(a, 0, 1);
+      text('z', baseX + i * 7 * S + Math.sin(ph * 6 + i) * 4 * S, baseY - ph * 42 * S,
+        (12 + i * 5) * S, '#fff', 'rgba(0,0,40,0.4)');
+      ctx.restore();
     }
   }
   function drawGround() {
@@ -608,6 +773,16 @@
       p.vx *= fr; p.vy *= fr;
       p.rot += p.vrot * dt;
     }
+    // textito del mega-pedo: cuenta su vida y se apaga
+    if (megaQuip.life > 0 && (megaQuip.age += dt) >= megaQuip.life) megaQuip.life = 0;
+    // ciclo día→noche por score (suave y monótono): avanza hacia score/SKY_CYCLE
+    skyProg += (score / SKY_CYCLE - skyProg) * clamp(dt * 1.5, 0, 1);
+    { const tt = skyProg % 1; nightness = clamp(1 - Math.abs(tt - 0.5) / 0.26, 0, 1); }
+    // el mega-pedo se carga con PUNTOS (10 = lleno); estando lleno, MANTENER lo dispara
+    megaCharge = clamp((score - scoreAtLastMega) / CHARGE_POINTS, 0, 1);
+    if (press.down && !press.fired && state === PLAYING && megaCharge >= 1 && (tNow - press.t0) >= HOLD_FIRE_MS) {
+      fireMega(); press.fired = true; scoreAtLastMega = score;
+    }
     // nubes siempre flotan (decoración)
     for (const c of clouds) {
       c.x -= c.spd * S * dt;
@@ -686,7 +861,9 @@
     for (const p of pipes) drawPipe(p);
     drawGround();
     drawPuffs();   // los pedos van por DETRÁS de la bombita
+    drawCharge(); // anillo de carga del mega (detrás de la bombita)
     drawBird();
+    drawSleepZs(); // Z's de sueño flotando (solo de noche)
     ctx.restore();
 
     // HUD por estado
@@ -711,6 +888,16 @@
       // solo el flash del golpe; el panel (score/nombre/ranking/reintentar) lo dibuja
       // el overlay HTML (#over) encima, que además aporta su propio oscurecido.
       if (flashA > 0) { ctx.fillStyle = `rgba(255,255,255,${flashA})`; ctx.fillRect(0, 0, W, H); }
+    }
+    // textito cómico del mega-pedo: flota hacia arriba y se desvanece
+    if (megaQuip.life > 0) {
+      const k = clamp(megaQuip.age / megaQuip.life, 0, 1);
+      const pop = k < 0.18 ? k / 0.18 : 1; // pequeño "pop" de entrada
+      ctx.save();
+      ctx.globalAlpha = clamp(1 - k, 0, 1);
+      text(megaQuip.msg, W / 2, H * 0.32 - k * 46 * S, 30 * S * (0.7 + 0.45 * pop),
+        '#fff36b', 'rgba(120,60,0,0.6)', 'center', W * 0.9);
+      ctx.restore();
     }
     if (state !== OVER) drawMute(); // en OVER manda el overlay HTML
   }

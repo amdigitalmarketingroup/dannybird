@@ -76,6 +76,13 @@ body {
   letter-spacing: 0.5px;
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.08);
 }
+.over-quip {
+  font-size: 15px;
+  font-weight: 700;
+  color: #c77b3a;
+  margin-top: 3px;
+  min-height: 18px;
+}
 .over-scores {
   display: flex;
   justify-content: center;
