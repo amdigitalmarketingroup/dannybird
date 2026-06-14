@@ -1,6 +1,6 @@
 /* Service worker de Danny Bird — cache-first para que el juego sea instalable y
  * jugable offline. Bump CACHE al cambiar assets para invalidar la versión vieja. */
-const CACHE = 'dannybird-v7';
+const CACHE = 'dannybird-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -23,36 +23,55 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .catch(() => {}) // si iOS rechaza un delete, no abortar la activación
       .then(() => self.clients.claim())
   );
 });
 
+// guarda en cache una copia OK same-origin (best-effort, no bloquea la respuesta)
+function putCache(req, res, sameOrigin) {
+  if (res && res.ok && sameOrigin) {
+    const copy = res.clone();
+    caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+  }
+  return res;
+}
+
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+  const sameOrigin = url.origin === self.location.origin;
 
-  // El ranking (/api/...) SIEMPRE va a la red, NUNCA al cache: son datos en vivo.
-  // (Bug previo: cache-first cacheaba el GET /api/scores y "envenenaba" el ranking
-  //  con una respuesta vieja vacía, aunque el POST guardara bien. Por eso no salía.)
-  if (url.pathname.startsWith('/api/')) {
-    e.respondWith(fetch(e.request)); // si no hay red, falla → el juego muestra "no se pudo cargar"
+  // 1) Ranking (/api): SIEMPRE va a la red, NUNCA al cache (datos en vivo).
+  //    (Bug previo: cache-first cacheaba GET /api/scores y "envenenaba" el ranking
+  //     con una respuesta vieja vacía, aunque el POST guardara bien.)
+  if (sameOrigin && url.pathname.startsWith('/api')) {
+    e.respondWith(fetch(e.request)); // sin red → falla → el juego muestra "no se pudo cargar"
     return;
   }
 
-  // Estáticos del juego: cache-first (instalable + jugable offline).
+  // 2) Código propio (navegación + .html/.js/.css): NETWORK-FIRST con fallback a cache.
+  //    Así un deploy nuevo se ve al instante sin depender de bumpear CACHE, pero sigue
+  //    jugable offline con la última copia guardada.
+  const isCode =
+    e.request.mode === 'navigate' ||
+    (sameOrigin && (url.pathname === '/' || /\.(html|js|css)$/.test(url.pathname)));
+  if (isCode) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => putCache(e.request, res, sameOrigin))
+        .catch(() => caches.match(e.request).then((hit) => hit || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // 3) Resto (imágenes, iconos, manifest, fuentes): CACHE-FIRST (rara vez cambian).
   e.respondWith(
     caches.match(e.request).then((hit) =>
       hit ||
       fetch(e.request)
-        .then((res) => {
-          // cachear assets propios nuevos (same-origin), best-effort
-          if (res.ok && url.origin === self.location.origin) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
-          }
-          return res;
-        })
-        .catch(() => caches.match('./index.html')) // fallback offline
+        .then((res) => putCache(e.request, res, sameOrigin))
+        .catch(() => undefined)
     )
   );
 });
