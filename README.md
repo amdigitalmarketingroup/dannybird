@@ -1,0 +1,82 @@
+# Danny Bird 🐦
+
+Clon de Flappy Bird, mobile-first, donde el personaje es **Danny** (una carita con
+alitas) en vez del pájaro. HTML5 + Canvas en JavaScript vanilla. PWA instalable,
+jugable offline, con SFX y música de fondo sintetizados (sin archivos de audio).
+
+**Live:** https://dannybird.25ocho.agency
+
+---
+
+## Cómo correr en local
+
+No hay build. Solo necesitas servir la carpeta por HTTP (el service worker y el
+manifest no funcionan con `file://`):
+
+```bash
+cd flappy-face
+python3 -m http.server 8080
+# abre http://localhost:8080
+```
+
+Cualquier server estático sirve (`npx serve`, `php -S`, etc.).
+
+## Controles
+
+- **Tap / click / Espacio / ↑ / W** = volar (impulso hacia arriba).
+- Esquiva los tubos. Chocar con tubo o suelo = game over. El techo no mata (topa).
+- Botón de **mute** arriba a la derecha (silencia música + efectos; se recuerda).
+- El **best score** se guarda en `localStorage`.
+
+## Reemplazar el personaje (player.png)
+
+El sprite vive en **`assets/player.png`** (PNG con fondo transparente, vista de
+perfil mirando a la derecha). Para cambiarlo:
+
+1. Reemplaza `assets/player.png` por tu PNG (fondo transparente, mirando a la
+   derecha). Cualquier proporción sirve; el juego lo escala manteniendo el aspecto.
+2. (Opcional) Regenera los iconos PWA desde el nuevo sprite.
+3. Si cambiaste assets, sube el número de versión del cache en `sw.js`
+   (`const CACHE = 'dannybird-v2'`) para invalidar la versión vieja.
+
+Si `player.png` no carga, el juego dibuja una carita procedural de respaldo
+(no rompe).
+
+## Física (fiel al Flappy original, tuneada por feel)
+
+Constantes en `game.js`, en unidades de un mundo de referencia de 640px de alto,
+escaladas al tamaño real de pantalla (mismo feel en cualquier celular):
+
+| Constante | Valor | Qué es |
+|---|---|---|
+| `GRAVITY` | 1500 px/s² | gravedad |
+| `FLAP_V` | -430 px/s | impulso del tap |
+| `MAX_FALL` | 560 px/s | tope de caída |
+| `PIPE_SPEED` | 150 px/s | velocidad de tubos |
+| `PIPE_GAP` | 178 px | hueco entre tubos |
+| `PIPE_SPACING` | 232 px | separación horizontal |
+
+Loop con **fixed timestep a 60Hz** (acumulador) → física determinista, idéntica en
+pantallas de 60/90/120Hz. Input en `pointerdown`/`keydown` directo (sin esperar al
+frame) + `touch-action:none` → latencia mínima entre control y gameplay.
+
+## Deploy (Hostinger)
+
+Sitio 100% estático. Subir el contenido de la carpeta al docroot del subdominio
+`dannybird.25ocho.agency`. El `.htaccess` ya trae los headers de cache correctos
+(SW sin cache, HTML revalidado, assets con cache largo). No hace falta build.
+
+## Estructura
+
+```
+flappy-face/
+├── index.html              # markup + meta PWA + registro del SW
+├── style.css               # full-bleed, mobile-first, sin latencia de gestos
+├── game.js                 # juego completo (física, render, audio, input)
+├── manifest.webmanifest    # PWA instalable
+├── sw.js                   # service worker (cache offline)
+├── .htaccess               # headers de cache para Hostinger
+├── assets/
+│   └── player.png          # ← el sprite del personaje (reemplazable)
+└── icons/                  # iconos PWA (192, 512, apple-touch, favicon)
+```

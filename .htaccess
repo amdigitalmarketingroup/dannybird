@@ -1,0 +1,33 @@
+# Danny Bird — Hostinger (LiteSpeed/Apache) static hosting
+# MIME + cache headers. HTML corto (revalidar), assets hasheables largos.
+
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+  AddType text/javascript .js
+  AddType image/png .png
+</IfModule>
+
+# El service worker NUNCA se cachea fuerte (si no, queda pegado en una versión vieja)
+<FilesMatch "sw\.js$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </IfModule>
+</FilesMatch>
+
+# HTML / manifest: revalidar siempre (deploys se ven al instante)
+<FilesMatch "\.(html|webmanifest)$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-cache, must-revalidate"
+  </IfModule>
+</FilesMatch>
+
+# Assets estáticos: cache largo (el SW gestiona la invalidación por versión)
+<FilesMatch "\.(png|jpg|jpeg|gif|webp|svg|css|js)$">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "public, max-age=604800"
+  </IfModule>
+</FilesMatch>
+
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/manifest+json image/svg+xml
+</IfModule>

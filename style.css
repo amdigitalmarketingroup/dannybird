@@ -1,0 +1,41 @@
+/* Danny Bird — mobile-first, pantalla completa, cero latencia de input.
+   touch-action:none + user-select:none matan los delays/gestos del navegador
+   (zoom doble-tap, scroll, selección) que arruinan el feel de un juego de tap. */
+:root {
+  color-scheme: light;
+  /* alto del notch / safe-area, leído desde JS para colocar HUD sin taparlo */
+  --sat: env(safe-area-inset-top, 0px);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #4ec0f0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* sin retrasos por gestos: el tap llega instantáneo al juego */
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+body {
+  /* full-bleed: el canvas ocupa toda la ventana (innerWidth×innerHeight) y el
+     safe-area se maneja DENTRO del juego (HUD desplazado por --sat). Sin padding
+     aquí para que el tamaño del canvas coincida exacto con la física. */
+  display: block;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  /* el canvas dibuja sus propios bordes; sin tap-highlight azul */
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}

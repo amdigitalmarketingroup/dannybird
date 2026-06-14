@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<!-- viewport-fit=cover + user-scalable=no: pantalla completa real en móvil y sin
+     zoom accidental que mete latencia/saltos durante el juego -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#4ec0f0" />
+<title>Danny Bird</title>
+<meta name="description" content="Danny Bird — un Flappy con Danny. Tap para volar, esquiva los tubos." />
+
+<!-- PWA / instalable -->
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icons/favicon.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Danny Bird" />
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- un solo canvas: todo el render del juego va aquí (mínimo overhead de DOM) -->
+  <canvas id="game" aria-label="Danny Bird — juego. Toca o presiona espacio para volar."></canvas>
+  <noscript>Activa JavaScript para jugar Danny Bird.</noscript>
+
+  <script src="game.js"></script>
+  <script>
+    // Service worker: registro best-effort, no bloquea el juego si falla.
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch((e) =>
+          console.warn('[sw] registro falló:', e && e.message)
+        );
+      });
+    }
+  </script>
+</body>
+</html>
