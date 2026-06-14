@@ -52,8 +52,8 @@ body {
   justify-content: center;
   padding: calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 14px);
   background: rgba(0, 0, 0, 0.42);
-  /* el overlay SÍ recibe taps (a diferencia del canvas) */
-  touch-action: auto;
+  /* el overlay recibe taps + scroll vertical del ranking, pero NO pinch-zoom */
+  touch-action: pan-y;
   -webkit-user-select: none;
   user-select: none;
   overflow-y: auto;

@@ -164,13 +164,24 @@
     const r = muteRect();
     return x >= r.x - 8 && x <= r.x + r.s + 8 && y >= r.y - 8 && y <= r.y + r.s + 8;
   }
+  // botón "🏆 RANKING" — SOLO en la pantalla de inicio, sobre el suelo
+  function rankRect() {
+    const w = 200 * S, h = 44 * S;
+    return { x: (W - w) / 2, y: H - GROUND_H * S - 62 * S, w, h };
+  }
+  function inRankBtn(x, y) {
+    if (state !== READY) return false;
+    const r = rankRect();
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  }
   // pointerdown cubre touch + mouse + pen, y es lo más rápido (no espera click)
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
     unlockAudio();
-    if (inMuteBtn(px, py)) { toggleMute(); return; } // tocar el ícono = mute, no vuela
+    if (inMuteBtn(px, py)) { toggleMute(); return; }       // tocar el ícono = mute, no vuela
+    if (inRankBtn(px, py)) { showRanking(); return; }       // ver ranking, no arranca el juego
     onPress();
   }, { passive: false });
   // teclado: espacio / flecha arriba / W
@@ -280,9 +291,12 @@
   const ovName = document.getElementById('ovName');
   const ovSave = document.getElementById('ovSave');
   const ovMsg = document.getElementById('ovMsg');
+  const ovTitle = document.getElementById('ovTitle');
+  const ovScores = document.getElementById('ovScores');
   const ovLb = document.getElementById('ovLb');
   const ovRetry = document.getElementById('ovRetry');
   let lbSubmitted = false;
+  let ovMode = 'over'; // 'over' (game over) | 'ranking' (ver ranking desde inicio)
 
   try { ovName.value = (localStorage.getItem('dannybird.name') || '').toUpperCase(); } catch (e) { /* sin storage */ }
   ovName.addEventListener('input', () => {
@@ -309,13 +323,30 @@
     }
   }
   function showOver() {
+    ovMode = 'over';
+    ovTitle.textContent = 'GAME OVER';
+    ovScores.classList.remove('hidden');
     ovScore.textContent = String(score);
     ovBest.textContent = String(best);
     ovNewbest.classList.toggle('hidden', !newBest);
     ovMsg.classList.add('hidden'); ovMsg.classList.remove('err');
     lbSubmitted = false;
     ovSave.disabled = false; ovName.disabled = false;
-    ovEntry.classList.toggle('hidden', score <= 0); // sin score, no se envía
+    ovEntry.classList.toggle('hidden', best <= 0); // se sube tu MEJOR (highscore), no el run
+    ovRetry.textContent = 'JUGAR DE NUEVO';
+    ovLb.innerHTML = '<li class="over-lb-loading">cargando…</li>';
+    ovEl.classList.remove('hidden'); ovEl.setAttribute('aria-hidden', 'false');
+    fetchLeaderboard();
+  }
+  // ver el ranking desde la pantalla de inicio (sin jugar)
+  function showRanking() {
+    ovMode = 'ranking';
+    ovTitle.textContent = '🏆 RANKING';
+    ovScores.classList.add('hidden');
+    ovEntry.classList.add('hidden');
+    ovNewbest.classList.add('hidden');
+    ovMsg.classList.add('hidden');
+    ovRetry.textContent = 'CERRAR';
     ovLb.innerHTML = '<li class="over-lb-loading">cargando…</li>';
     ovEl.classList.remove('hidden'); ovEl.setAttribute('aria-hidden', 'false');
     fetchLeaderboard();
@@ -332,7 +363,7 @@
     try {
       const r = await fetch('/api/scores', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, score }),
+        body: JSON.stringify({ name, score: Math.max(score, best) }), // sube tu MEJOR (highscore)
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'error');
@@ -346,7 +377,17 @@
     }
   });
   ovName.addEventListener('keydown', (e) => { if (e.key === 'Enter') ovSave.click(); });
-  ovRetry.addEventListener('click', () => { hideOver(); state = READY; resetWorld(); });
+  ovRetry.addEventListener('click', () => {
+    hideOver();
+    if (ovMode === 'over') { state = READY; resetWorld(); } // game over → volver a inicio
+    // en modo ranking ya estamos en READY: solo cerrar
+  });
+
+  // matar el PINCH-TO-ZOOM (iOS ignora user-scalable=no) y el doble-tap-zoom del canvas
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) =>
+    document.addEventListener(ev, (e) => e.preventDefault())
+  );
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
   // ── sprite del jugador (player.png) con fallback procedural ─────────────────
   const sprite = new Image();         // frame 1: alas extendidas/arriba
@@ -582,7 +623,14 @@
       text('TAP PARA VOLAR', W / 2, H * 0.62, 26 * S, '#fff', 'rgba(0,0,0,0.5)', 'center', W * 0.8);
       ctx.globalAlpha = 1;
       text('toca / espacio', W / 2, H * 0.67, 16 * S, 'rgba(255,255,255,0.85)', 'rgba(0,0,0,0.35)');
-      if (best > 0) text('MEJOR: ' + best, W / 2, H * 0.74, 20 * S, '#ffe680', 'rgba(0,0,0,0.45)');
+      if (best > 0) text('MEJOR: ' + best, W / 2, H * 0.73, 20 * S, '#ffe680', 'rgba(0,0,0,0.45)');
+      // botón "🏆 RANKING" (sobre el suelo)
+      const rr = rankRect();
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      roundRect(rr.x, rr.y, rr.w, rr.h, 12 * S); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2 * S;
+      roundRect(rr.x, rr.y, rr.w, rr.h, 12 * S); ctx.stroke();
+      text('🏆 RANKING', W / 2, rr.y + rr.h / 2, 20 * S, '#fff', null, 'center', rr.w * 0.82);
     } else if (state === OVER) {
       // solo el flash del golpe; el panel (score/nombre/ranking/reintentar) lo dibuja
       // el overlay HTML (#over) encima, que además aporta su propio oscurecido.

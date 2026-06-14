@@ -18,9 +18,10 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS scores_top ON scores(score DESC, id ASC);
 `);
-const qTop = db.prepare('SELECT name, score FROM scores ORDER BY score DESC, id ASC LIMIT ?');
+// ranking = el MEJOR score de cada nombre (highscore), sin duplicados
+const qTop = db.prepare('SELECT name, MAX(score) AS score FROM scores GROUP BY name ORDER BY score DESC, MIN(id) ASC LIMIT ?');
 const qInsert = db.prepare('INSERT INTO scores (name, score) VALUES (?, ?)');
-const qRank = db.prepare('SELECT COUNT(*) + 1 AS rank FROM scores WHERE score > ?');
+const qRank = db.prepare('SELECT COUNT(*) + 1 AS rank FROM (SELECT name, MAX(score) AS m FROM scores GROUP BY name) WHERE m > ?');
 
 // rate-limit anti-spam por IP: máx 20 envíos / 60s (en memoria, suficiente)
 const hits = new Map();
