@@ -58,7 +58,7 @@
   const BIRD_HIT_R = 19;    // radio de colisión (más chico que el dibujo = justo)
   const READY_FLOAT = 7;    // amplitud del bobbing en la pantalla de inicio
   const PUFF_LIFE = 0.34;   // vida del puff de pedo (s): fade-out en ~340ms
-  const VERSION = 'v21';       // se muestra chiquito en el inicio para confirmar build (anti-caché)
+  const VERSION = 'v22';       // se muestra chiquito en el inicio para confirmar build (anti-caché)
 
   // helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -86,7 +86,9 @@
   const bird = { x: 0, y: 0, vy: 0, angle: 0, pump: 0 };
   let pipes = [];
   let puffs = [];           // partículas de pedo (feedback del impulso)
-  let fartCount = 0;            // cuenta de taps → cada 10, un pedo INTENSO (solo cosmético)
+  let fartCount = 0;            // cuenta de taps → cada 15, un pedo INTENSO (solo cosmético)
+  let drops = [];              // gotas de diarrea líquida (caen con gravedad)
+  let stains = [];             // manchas en el suelo (quedan y scrollean con el piso)
   let megaQuip = { age: 0, life: 0, msg: '' }; // textito cómico del pedo intenso
   let groundX = 0;
   let clouds = [];
@@ -105,6 +107,8 @@
     bird.angle = 0;
     pipes = [];
     puffs = [];
+    drops = [];
+    stains = [];
     fartCount = 0;
     megaQuip.life = 0;
     skyProg = 0;
@@ -159,16 +163,42 @@
   // ── input (latencia mínima: actúa en el mismo evento, sin esperar frame) ─────
   // textitos cómicos del pedo intenso (cada 10 taps)
   const MEGA_QUIPS = ['¡PEDOTE! 💨', '¡DIARREA! 💩', '¡QUÉ TRONÓ!', '¡SE OYÓ HASTA ALLÁ!', '¡CAÑONAZO! 💥', '¡GUÁCALA! 🤢'];
-  // tap = MISMO impulso SIEMPRE (NO cambia velocidad ni distancia). Cada 10º tap es un
-  // pedo INTENSO: misma física, pero animación + sonido más fuertes + diarrea café.
+  // tap = MISMO impulso SIEMPRE (NO cambia velocidad ni distancia). Cada 15º tap es un
+  // pedo INTENSO: misma física, pero animación + sonido más fuertes + diarrea LÍQUIDA
+  // que cae, salpica y deja mancha en el suelo.
   function flap() {
     fartCount++;
-    const intense = fartCount % 10 === 0;
+    const intense = fartCount % 15 === 0;
     bird.vy = FLAP_V * S;            // impulso idéntico para todos (física intacta)
     bird.pump = intense ? 1.7 : 1;   // squash más marcado en el intenso
     spawnFart(intense);
     playFart(intense);
-    if (intense) megaQuip = { age: 0, life: 1.0, msg: MEGA_QUIPS[rand(0, MEGA_QUIPS.length) | 0] };
+    if (intense) { spawnDrops(); megaQuip = { age: 0, life: 1.0, msg: MEGA_QUIPS[rand(0, MEGA_QUIPS.length) | 0] }; }
+  }
+  // gotas de diarrea LÍQUIDA: salen del trasero, caen con gravedad y al tocar el suelo
+  // dejan una MANCHA que se queda y scrollea con el piso.
+  function spawnDrops() {
+    const n = 8 + (rand(0, 5) | 0);
+    for (let i = 0; i < n; i++) {
+      drops.push({
+        x: bird.x - 12 * S + rand(-10, 6) * S,
+        y: bird.y + 14 * S + rand(-4, 8) * S,
+        vx: rand(-30, 25) * S,   // dispersión (se suma el scroll del mundo)
+        vy: rand(-70, 40) * S,   // algunas salen hacia arriba y luego caen
+        r: rand(3, 7) * S,
+      });
+    }
+  }
+  // crea una mancha (salpicadura de varios blobs) en el suelo donde cayó una gota
+  function addStain(x, y, r) {
+    const blobs = [];
+    const k = 3 + (rand(0, 3) | 0);
+    for (let i = 0; i < k; i++) blobs.push({
+      dx: rand(-r * 1.6, r * 1.6), dy: rand(-r * 0.4, r * 0.5),
+      rx: r * rand(0.55, 1.3), ry: r * rand(0.3, 0.6),
+    });
+    stains.push({ x, y: y + rand(2, 8) * S, blobs });
+    if (stains.length > 80) stains.shift(); // cap de seguridad
   }
   // suelta pedo por DETRÁS (izquierda, mira a la derecha) y ABAJO: se aleja, escala y
   // se desvanece. El mega = más nubes y más grandes (según carga), con algunas CAFÉ
@@ -546,6 +576,32 @@
     }
   }
 
+  // manchas de diarrea en el suelo: salpicaduras café que se quedan (sobre el piso)
+  function drawStains() {
+    if (!stains.length) return;
+    ctx.save();
+    ctx.fillStyle = 'rgba(96,58,24,0.5)';
+    for (const s of stains) for (const b of s.blobs) {
+      ctx.beginPath();
+      ctx.ellipse(s.x + b.dx, s.y + b.dy, Math.abs(b.rx), Math.abs(b.ry), 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  // gotas de diarrea líquida cayendo: óvalos café elongados según la caída
+  function drawDrops() {
+    if (!drops.length) return;
+    ctx.save();
+    ctx.fillStyle = '#7a4a1e';
+    for (const d of drops) {
+      const stretch = 1 + clamp(d.vy / (420 * S), 0, 1.3);
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, d.r, d.r * stretch, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // ── render de tubos (procedural estilo clásico, verde con tapa y brillo) ─────
   function drawPipe(p) {
     const gap = (p.gap || PIPE_GAP_BASE) * S, w = PIPE_W * S;
@@ -785,6 +841,22 @@
     // limpiar tubos fuera de pantalla
     if (pipes.length && pipes[0].x < -PIPE_W * S - 10) pipes.shift();
 
+    // diarrea LÍQUIDA: cae con gravedad + scrollea con el mundo; al tocar el suelo MANCHA
+    const floorY = H - GROUND_H * S;
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      d.vy += GRAVITY * 0.85 * S * dt;
+      d.x += d.vx * dt - sp * dt; // dispersión + scroll del mundo
+      d.y += d.vy * dt;
+      if (d.y + d.r >= floorY) { addStain(d.x, floorY, d.r); drops.splice(i, 1); }
+      else if (d.x < -20 * S) drops.splice(i, 1);
+    }
+    // manchas del suelo: scrollean con el piso y se quedan hasta salir de pantalla
+    for (let i = stains.length - 1; i >= 0; i--) {
+      stains[i].x -= sp * dt;
+      if (stains[i].x < -50 * S) stains.splice(i, 1);
+    }
+
     // score: al cruzar el tubo
     for (const p of pipes) {
       if (!p.passed && p.x + PIPE_W * S < bird.x) {
@@ -815,7 +887,9 @@
     drawBackground();
     for (const p of pipes) drawPipe(p);
     drawGround();
+    drawStains();  // manchas de diarrea en el suelo (quedan)
     drawPuffs();   // los pedos van por DETRÁS de la bombita
+    drawDrops();   // gotas de diarrea líquida cayendo
     drawBird();
     drawSleepZs(); // Z's de sueño flotando (solo de noche)
     ctx.restore();
