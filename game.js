@@ -53,7 +53,7 @@
   const BIRD_DRAW_H = 58;   // alto del sprite dibujado
   const BIRD_HIT_R = 19;    // radio de colisión (más chico que el dibujo = justo)
   const READY_FLOAT = 7;    // amplitud del bobbing en la pantalla de inicio
-  const WINGBEAT = 6;       // aleteos por segundo (flutter continuo de las alas)
+  const WINGBEAT = 4;       // aleteos por segundo (swap entre los 2 frames de alas)
 
   // helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -266,29 +266,32 @@
   }
 
   // ── sprite del jugador (player.png) con fallback procedural ─────────────────
-  const sprite = new Image();
+  const sprite = new Image();         // frame 1: alas extendidas/arriba
   let spriteReady = false, spriteFailed = false;
   sprite.onload = () => { spriteReady = true; };
   sprite.onerror = () => { spriteFailed = true; console.warn('[danny] player.png no cargó, uso carita procedural'); };
   sprite.src = 'assets/player.png';
 
+  const sprite2 = new Image();        // frame 2: alas abajo/recogidas (aleteo real)
+  let sprite2Ready = false;
+  sprite2.onload = () => { sprite2Ready = true; };
+  sprite2.onerror = () => { sprite2Ready = false; };
+  sprite2.src = 'assets/player2.png';
+
   function drawBird() {
     const h = BIRD_DRAW_H * S;
     const ratio = spriteReady ? sprite.width / sprite.height : 0.86;
     const w = h * ratio;
+    // aleteo REAL por frames: en la mitad baja del ciclo se muestra el frame de
+    // alas abajo (sprite2); arriba, el de alas extendidas (sprite). Ambos frames
+    // están recortados a la MISMA caja → la cabeza no salta al alternar.
+    const frame = (Math.sin(bird.wing * Math.PI * 2) < 0 && sprite2Ready) ? sprite2 : sprite;
     ctx.save();
     ctx.translate(bird.x, bird.y);
     ctx.rotate(bird.angle);
-    // aleteo: squash vertical anclado en la cabeza → las alas (abajo) suben/bajan
-    const amp = 0.07 + 0.13 * bird.pump;
-    const sy = 1 + Math.sin(bird.wing * Math.PI * 2) * amp;
-    const sx = 1 - (sy - 1) * 0.4; // compensa el volumen (estira al achatar)
-    ctx.translate(0, -h * 0.16);
-    ctx.scale(sx, sy);
-    ctx.translate(0, h * 0.16);
     if (spriteReady) {
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
+      ctx.drawImage(frame, -w / 2, -h / 2, w, h);
     } else {
       // fallback: carita simple (círculo + ojo) si player.png falta
       ctx.fillStyle = '#f7d9a0';
@@ -389,7 +392,8 @@
   // ── update (fixed step, dt en segundos) ─────────────────────────────────────
   function update(dt) {
     // aleteo: las alas baten siempre (flutter) y fuerte tras cada tap (pump decae)
-    if (state !== OVER) bird.wing += dt * WINGBEAT;
+    // las alas baten siempre; tras un tap el aleteo se acelera (pump) y decae
+    if (state !== OVER) bird.wing += dt * WINGBEAT * (1 + bird.pump * 2);
     bird.pump = Math.max(0, bird.pump - dt * 3.2);
     // nubes siempre flotan (decoración)
     for (const c of clouds) {

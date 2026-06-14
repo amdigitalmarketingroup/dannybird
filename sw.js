@@ -1,6 +1,6 @@
 /* Service worker de Danny Bird — cache-first para que el juego sea instalable y
  * jugable offline. Bump CACHE al cambiar assets para invalidar la versión vieja. */
-const CACHE = 'dannybird-v2';
+const CACHE = 'dannybird-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   './game.js',
   './manifest.webmanifest',
   './assets/player.png',
+  './assets/player2.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
