@@ -1,6 +1,6 @@
 /* Service worker de Danny Bird — cache-first para que el juego sea instalable y
  * jugable offline. Bump CACHE al cambiar assets para invalidar la versión vieja. */
-const CACHE = 'dannybird-v6';
+const CACHE = 'dannybird-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -29,13 +29,24 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+
+  // El ranking (/api/...) SIEMPRE va a la red, NUNCA al cache: son datos en vivo.
+  // (Bug previo: cache-first cacheaba el GET /api/scores y "envenenaba" el ranking
+  //  con una respuesta vieja vacía, aunque el POST guardara bien. Por eso no salía.)
+  if (url.pathname.startsWith('/api/')) {
+    e.respondWith(fetch(e.request)); // si no hay red, falla → el juego muestra "no se pudo cargar"
+    return;
+  }
+
+  // Estáticos del juego: cache-first (instalable + jugable offline).
   e.respondWith(
     caches.match(e.request).then((hit) =>
       hit ||
       fetch(e.request)
         .then((res) => {
           // cachear assets propios nuevos (same-origin), best-effort
-          if (res.ok && new URL(e.request.url).origin === self.location.origin) {
+          if (res.ok && url.origin === self.location.origin) {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
           }
