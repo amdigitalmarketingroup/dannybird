@@ -693,7 +693,7 @@
     if (state === PLAYING) {
       text(String(score), W / 2, H * 0.14, 64 * S, '#fff', 'rgba(0,0,0,0.55)');
     } else if (state === READY) {
-      text('DANNY BIRD', W / 2, H * 0.22, 46 * S, '#fff', 'rgba(0,0,0,0.5)', 'center', W * 0.86);
+      text('FARTY GIRL', W / 2, H * 0.22, 46 * S, '#fff', 'rgba(0,0,0,0.5)', 'center', W * 0.86);
       const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tNow / 400));
       ctx.globalAlpha = pulse;
       text('TAP PARA VOLAR', W / 2, H * 0.62, 26 * S, '#fff', 'rgba(0,0,0,0.5)', 'center', W * 0.8);

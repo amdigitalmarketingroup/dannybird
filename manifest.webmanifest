@@ -1,7 +1,7 @@
 {
-  "name": "Danny Bird",
-  "short_name": "Danny Bird",
-  "description": "Un Flappy con Danny. Tap para volar y esquiva los tubos.",
+  "name": "Farty Girl",
+  "short_name": "Farty Girl",
+  "description": "Tap para echarte un pedo y volar. Esquiva los tubos.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "fullscreen",
