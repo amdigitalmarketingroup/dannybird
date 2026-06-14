@@ -569,25 +569,29 @@
     }
   }
 
-  // anillo de carga del mega-pedo: se llena con PUNTOS (10 = lleno). Lleno → pulsa y
-  // muestra "MANTÉN" (mantener presionado lo dispara).
+  // medidor de carga del SUPER-PEDO DIARREA: en la ESQUINA inferior izquierda (HUD),
+  // NO alrededor de la bombita. Se llena con puntos; lleno → pulsa + "MANTÉN".
   function drawCharge() {
     if (state !== PLAYING || megaCharge <= 0.02) return;
-    const c = megaCharge, ready = c >= 1, rad = BIRD_DRAW_H * 0.72 * S, cx = bird.x, cy = bird.y;
+    const c = megaCharge, ready = c >= 1;
+    const h = 15 * S, w = 96 * S;
+    const x = 40 * S, y = H - GROUND_H * S - h - 16 * S; // esquina inf. izquierda, sobre el suelo
     ctx.save();
-    ctx.lineWidth = 4 * S; ctx.lineCap = 'round';
-    ctx.strokeStyle = 'rgba(0,0,0,0.16)';
-    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke(); // pista
-    ctx.strokeStyle = ready ? '#b4f06a' : 'rgba(150,210,90,0.9)';
-    ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + c * Math.PI * 2); ctx.stroke();
+    text('💨', x - 24 * S, y + h / 2, 19 * S, '#fff', 'rgba(0,0,0,0.45)', 'center'); // ícono del pedo
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(x, y, w, h, h / 2); ctx.fill();
+    const fw = (w - 4 * S) * c;
+    if (fw > 1) {
+      ctx.fillStyle = ready ? '#b4f06a' : '#7ed957';
+      roundRect(x + 2 * S, y + 2 * S, fw, h - 4 * S, Math.min((h - 4 * S) / 2, fw / 2)); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.5 * S;
+    roundRect(x, y, w, h, h / 2); ctx.stroke();
     if (ready) {
-      ctx.globalAlpha = 0.35 + 0.35 * Math.sin(tNow / 110);
-      ctx.lineWidth = 7 * S; ctx.strokeStyle = '#e9ffc4';
-      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.55 + 0.45 * Math.sin(tNow / 110);
+      text('MANTÉN', x + w / 2, y - 11 * S, 12 * S, '#eaffc4', 'rgba(0,60,0,0.6)', 'center');
       ctx.globalAlpha = 1;
     }
     ctx.restore();
-    if (ready) text('MANTÉN 💨', cx, cy - rad - 13 * S, 13 * S, '#eaffc4', 'rgba(0,60,0,0.55)');
   }
 
   // ── render de tubos (procedural estilo clásico, verde con tapa y brillo) ─────
@@ -873,7 +877,6 @@
     for (const p of pipes) drawPipe(p);
     drawGround();
     drawPuffs();   // los pedos van por DETRÁS de la bombita
-    drawCharge(); // anillo de carga del mega (detrás de la bombita)
     drawBird();
     drawSleepZs(); // Z's de sueño flotando (solo de noche)
     ctx.restore();
@@ -911,6 +914,7 @@
         '#fff36b', 'rgba(120,60,0,0.6)', 'center', W * 0.9);
       ctx.restore();
     }
+    drawCharge(); // medidor del super-pedo en la esquina (HUD, solo en PLAYING)
     if (state !== OVER) drawMute(); // en OVER manda el overlay HTML
   }
 
