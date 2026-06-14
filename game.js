@@ -18,6 +18,9 @@
   // ── dimensiones / escala ───────────────────────────────────────────────────
   let W = 0, H = 0, DPR = 1, S = 1; // W,H en px CSS; S = escala vs mundo de referencia
   let safeTop = 0;                  // alto del notch (safe-area) para no tapar el HUD
+  // gráficos cacheados (PERF): se construyen 1 vez por tamaño, no por frame.
+  // Recrear gradientes y el suelo en cada frame era lo que bajaba los FPS en móvil.
+  let bgGrad = null, pipeGrad = null, groundStrip = null, groundStep = 0, gfxDirty = true;
   const REF_H = 640; // mundo de diseño: 640px de alto
 
   function resize() {
@@ -31,6 +34,7 @@
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0); // dibujamos en px CSS, el backing store es DPR
     S = H / REF_H;
     safeTop = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 0;
+    gfxDirty = true; // el tamaño cambió → reconstruir gradientes + suelo cacheados
   }
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', resize);
@@ -256,7 +260,7 @@
     musicGain.gain.value = muted ? 0 : 1;
     musicGain.connect(actx.destination);
     nextNoteTime = actx.currentTime + 0.08;
-    musicTimer = setInterval(scheduleMusic, 25);
+    musicTimer = setInterval(scheduleMusic, 50);
   }
   function toggleMute() {
     muted = !muted;
@@ -305,32 +309,28 @@
   // ── render de tubos (procedural estilo clásico, verde con tapa y brillo) ─────
   function drawPipe(p) {
     const gap = (p.gap || PIPE_GAP_BASE) * S, w = PIPE_W * S;
-    const x = p.x, topH = p.gapY - gap / 2, botY = p.gapY + gap / 2;
+    const topH = p.gapY - gap / 2, botY = p.gapY + gap / 2;
     const groundY = H - GROUND_H * S;
     const capH = 26 * S, capOver = 5 * S;
-    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
-    grad.addColorStop(0, '#5bbf3a'); grad.addColorStop(0.35, '#7ed957');
-    grad.addColorStop(0.55, '#9be86f'); grad.addColorStop(1, '#4e9c2f');
-    // tubo superior
-    ctx.fillStyle = grad;
-    ctx.fillRect(x, 0, w, topH);
-    ctx.fillRect(x - capOver, topH - capH, w + capOver * 2, capH);
-    // tubo inferior
-    ctx.fillRect(x, botY, w, groundY - botY);
-    ctx.fillRect(x - capOver, botY, w + capOver * 2, capH);
-    // bordes oscuros
+    // gradiente CACHEADO (0..w): se posiciona con translate por tubo (sin recrearlo)
+    ctx.save();
+    ctx.translate(p.x, 0);
+    ctx.fillStyle = pipeGrad;
+    ctx.fillRect(0, 0, w, topH);                              // tubo superior
+    ctx.fillRect(-capOver, topH - capH, w + capOver * 2, capH);
+    ctx.fillRect(0, botY, w, groundY - botY);                // tubo inferior
+    ctx.fillRect(-capOver, botY, w + capOver * 2, capH);
     ctx.strokeStyle = 'rgba(40,80,20,0.55)'; ctx.lineWidth = Math.max(1, 2 * S);
-    ctx.strokeRect(x, 0, w, topH);
-    ctx.strokeRect(x - capOver, topH - capH, w + capOver * 2, capH);
-    ctx.strokeRect(x, botY, w, groundY - botY);
-    ctx.strokeRect(x - capOver, botY, w + capOver * 2, capH);
+    ctx.strokeRect(0, 0, w, topH);
+    ctx.strokeRect(-capOver, topH - capH, w + capOver * 2, capH);
+    ctx.strokeRect(0, botY, w, groundY - botY);
+    ctx.strokeRect(-capOver, botY, w + capOver * 2, capH);
+    ctx.restore();
   }
 
   // ── fondo + suelo ────────────────────────────────────────────────────────────
   function drawBackground() {
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#4ec0f0'); g.addColorStop(0.7, '#8fd6f5'); g.addColorStop(1, '#cdeefb');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H); // gradiente cacheado (no por frame)
     // nubes
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     for (const c of clouds) {
@@ -343,21 +343,39 @@
     }
   }
   function drawGround() {
-    const gy = H - GROUND_H * S, gh = GROUND_H * S;
-    ctx.fillStyle = '#ded895'; ctx.fillRect(0, gy, W, gh);
-    ctx.fillStyle = '#caa45a'; ctx.fillRect(0, gy, W, 8 * S); // franja superior
-    // textura de rayas que se desplaza
-    ctx.fillStyle = '#d6cf86';
-    const step = 26 * S, off = groundX % step;
-    for (let x = -step + off; x < W; x += step) {
-      ctx.beginPath();
-      ctx.moveTo(x, gy + 8 * S);
-      ctx.lineTo(x + step * 0.5, gy + 8 * S);
-      ctx.lineTo(x + step * 0.5 - 8 * S, gy + gh);
-      ctx.lineTo(x - 8 * S, gy + gh);
-      ctx.fill();
+    // suelo PRE-RENDERIZADO una vez (groundStrip = W + un período de rayas) → un solo
+    // drawImage por frame con el desplazamiento del scroll (antes: ~20 paths/frame).
+    const gy = H - GROUND_H * S, step = groundStep || 1;
+    let off = groundX % step; if (off > 0) off -= step; // off en (-step, 0]
+    ctx.drawImage(groundStrip, off, gy);
+  }
+
+  // construye los gráficos cacheados (gradientes + tira de suelo). Se llama 1 vez por
+  // tamaño desde render() cuando gfxDirty — NO por frame. Aquí ya existen las consts.
+  function buildGfx() {
+    bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, '#4ec0f0'); bgGrad.addColorStop(0.7, '#8fd6f5'); bgGrad.addColorStop(1, '#cdeefb');
+    pipeGrad = ctx.createLinearGradient(0, 0, PIPE_W * S, 0);
+    pipeGrad.addColorStop(0, '#5bbf3a'); pipeGrad.addColorStop(0.35, '#7ed957');
+    pipeGrad.addColorStop(0.55, '#9be86f'); pipeGrad.addColorStop(1, '#4e9c2f');
+    const step = Math.max(2, Math.round(26 * S));
+    groundStep = step;
+    const gh = Math.ceil(GROUND_H * S), gw = Math.ceil(W) + step;
+    groundStrip = document.createElement('canvas');
+    groundStrip.width = gw; groundStrip.height = gh;
+    const g = groundStrip.getContext('2d');
+    g.fillStyle = '#ded895'; g.fillRect(0, 0, gw, gh);
+    g.fillStyle = '#caa45a'; g.fillRect(0, 0, gw, 8 * S);
+    g.fillStyle = '#d6cf86';
+    for (let x = 0; x < gw; x += step) {
+      g.beginPath();
+      g.moveTo(x, 8 * S);
+      g.lineTo(x + step * 0.5, 8 * S);
+      g.lineTo(x + step * 0.5 - 8 * S, gh);
+      g.lineTo(x - 8 * S, gh);
+      g.fill();
     }
-    ctx.fillStyle = '#b89a52'; ctx.fillRect(0, gy + gh - 4 * S, W, 4 * S);
+    g.fillStyle = '#b89a52'; g.fillRect(0, gh - 4 * S, gw, 4 * S);
   }
 
   // ── texto con contorno (legible sobre cualquier fondo) ──────────────────────
@@ -466,6 +484,7 @@
 
   // ── render ────────────────────────────────────────────────────────────────
   function render() {
+    if (gfxDirty) { buildGfx(); gfxDirty = false; } // (re)construye gráficos cacheados 1 vez
     ctx.save();
     if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
     drawBackground();
