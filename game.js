@@ -61,6 +61,7 @@
   const CHARGE_POINTS = 10;    // combustible del jetpack: +1/10 por punto (10 pts = tanque lleno)
   const THRUST_V = -250;       // velocidad de subida durante el empuje (controlada, menor que un flap)
   const THRUST_FULL_SEC = 1.6; // cuánto dura el tanque lleno de empuje continuo
+  const VERSION = 'v18';       // se muestra chiquito en el inicio para confirmar build (anti-caché)
 
   // helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -569,29 +570,31 @@
     }
   }
 
-  // medidor de carga del SUPER-PEDO DIARREA: en la ESQUINA inferior izquierda (HUD),
-  // NO alrededor de la bombita. Se llena con puntos; lleno → pulsa + "MANTÉN".
+  // BADGE de carga del SUPER-PEDO: ícono FIJO en la esquina inferior izquierda con un
+  // aro de progreso alrededor del ÍCONO (no de la bombita). Lleno → pulsa + "MANTÉN".
   function drawCharge() {
     if (state !== PLAYING || megaCharge <= 0.02) return;
     const c = megaCharge, ready = c >= 1;
-    const h = 15 * S, w = 96 * S;
-    const x = 40 * S, y = H - GROUND_H * S - h - 16 * S; // esquina inf. izquierda, sobre el suelo
+    const cx = 46 * S, cy = H - GROUND_H * S - 44 * S, rad = 21 * S; // fijo en la esquina
     ctx.save();
-    text('💨', x - 24 * S, y + h / 2, 19 * S, '#fff', 'rgba(0,0,0,0.45)', 'center'); // ícono del pedo
-    ctx.fillStyle = 'rgba(0,0,0,0.45)'; roundRect(x, y, w, h, h / 2); ctx.fill();
-    const fw = (w - 4 * S) * c;
-    if (fw > 1) {
-      ctx.fillStyle = ready ? '#b4f06a' : '#7ed957';
-      roundRect(x + 2 * S, y + 2 * S, fw, h - 4 * S, Math.min((h - 4 * S) / 2, fw / 2)); ctx.fill();
-    }
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.5 * S;
-    roundRect(x, y, w, h, h / 2); ctx.stroke();
+    // disco de fondo
+    ctx.fillStyle = 'rgba(0,0,0,0.42)';
+    ctx.beginPath(); ctx.arc(cx, cy, rad + 6 * S, 0, Math.PI * 2); ctx.fill();
+    // aro: pista + progreso alrededor del ícono
+    ctx.lineWidth = 5 * S; ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = ready ? '#b4f06a' : '#7ed957';
+    ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + c * Math.PI * 2); ctx.stroke();
     if (ready) {
-      ctx.globalAlpha = 0.55 + 0.45 * Math.sin(tNow / 110);
-      text('MANTÉN', x + w / 2, y - 11 * S, 12 * S, '#eaffc4', 'rgba(0,60,0,0.6)', 'center');
+      ctx.globalAlpha = 0.4 + 0.4 * Math.sin(tNow / 110);
+      ctx.lineWidth = 8 * S; ctx.strokeStyle = '#e9ffc4';
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+    text('💨', cx, cy + 1 * S, 22 * S, '#fff'); // ícono del pedo en el centro del badge
+    if (ready) text('MANTÉN', cx, cy + rad + 14 * S, 11 * S, '#eaffc4', 'rgba(0,60,0,0.6)');
   }
 
   // ── render de tubos (procedural estilo clásico, verde con tapa y brillo) ─────
@@ -899,6 +902,8 @@
       ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2 * S;
       roundRect(rr.x, rr.y, rr.w, rr.h, 12 * S); ctx.stroke();
       text('🏆 RANKING', W / 2, rr.y + rr.h / 2, 20 * S, '#fff', null, 'center', rr.w * 0.82);
+      // versión chiquita (esquina) para que Mario confirme que la app ya cargó el build nuevo
+      text(VERSION, W - 12 * S, H - 12 * S, 11 * S, 'rgba(255,255,255,0.6)', 'rgba(0,0,0,0.4)', 'right');
     } else if (state === OVER) {
       // solo el flash del golpe; el panel (score/nombre/ranking/reintentar) lo dibuja
       // el overlay HTML (#over) encima, que además aporta su propio oscurecido.
