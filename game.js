@@ -58,8 +58,9 @@
   const BIRD_HIT_R = 19;    // radio de colisión (más chico que el dibujo = justo)
   const READY_FLOAT = 7;    // amplitud del bobbing en la pantalla de inicio
   const PUFF_LIFE = 0.34;   // vida del puff de pedo (s): fade-out en ~340ms
-  const CHARGE_POINTS = 10; // el mega-pedo se carga con PUNTOS: 10 puntos = carga llena
-  const HOLD_FIRE_MS = 220; // hold mínimo (ms) para disparar el mega ya cargado
+  const CHARGE_POINTS = 10;    // combustible del jetpack: +1/10 por punto (10 pts = tanque lleno)
+  const THRUST_V = -250;       // velocidad de subida durante el empuje (controlada, menor que un flap)
+  const THRUST_FULL_SEC = 1.6; // cuánto dura el tanque lleno de empuje continuo
 
   // helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -87,10 +88,11 @@
   const bird = { x: 0, y: 0, vy: 0, angle: 0, pump: 0 };
   let pipes = [];
   let puffs = [];           // partículas de pedo (feedback del impulso)
-  let press = { down: false, t0: 0, fired: false }; // power "mega-pedo": HOLD para usarlo
-  let megaCharge = 0;       // 0..1, se llena con PUNTOS (10 pts = lleno)
-  let scoreAtLastMega = 0;  // score al usar el último mega (para recargar cada 10)
-  let megaQuip = { age: 0, life: 0, msg: '' }; // textito cómico del mega-pedo
+  let press = { down: false };  // propulsión: MANTENER presionado para empujar (gasta combustible)
+  let megaCharge = 0;           // combustible 0..1: se llena con puntos, se gasta al propulsar
+  let thrustOn = false;         // flanco para el textito al empezar a propulsar
+  let thrustEmit = 0;           // temporizador de la estela de propulsión
+  let megaQuip = { age: 0, life: 0, msg: '' }; // textito cómico de la propulsión
   let groundX = 0;
   let clouds = [];
   let stars = [];           // estrellas (aparecen de noche)
@@ -108,7 +110,7 @@
     bird.angle = 0;
     pipes = [];
     puffs = [];
-    press.down = false; press.fired = false; megaCharge = 0; scoreAtLastMega = 0;
+    press.down = false; megaCharge = 0; thrustOn = false; thrustEmit = 0;
     megaQuip.life = 0;
     skyProg = 0;
     nightness = 0;
@@ -170,16 +172,18 @@
   }
   // power "mega-pedo": se MANTIENE presionado para cargar y al soltar dispara, escalado
   // por la carga. Es decisión del jugador (no automático) → no te quita el control.
-  function beginPress() { if (state === PLAYING) { press.down = true; press.t0 = tNow; press.fired = false; } }
-  function endPress() { press.down = false; press.fired = false; }
-  // dispara el mega (solo cuando la carga de 10 puntos está llena): nube grande +
-  // diarrea café + empujón fuerte + textito. Consume la carga (recarga en 10 pts más).
-  function fireMega() {
-    bird.vy = FLAP_V * 2.0 * S; // empujón fuerte (carga llena)
-    bird.pump = 1.9;            // squash marcado
-    spawnFart(true, 1);
-    playFart(true);
-    megaQuip = { age: 0, life: 1.1, msg: MEGA_QUIPS[rand(0, MEGA_QUIPS.length) | 0] };
+  function beginPress() { if (state === PLAYING) press.down = true; }
+  function endPress() { press.down = false; }
+  // estela de propulsión: chorritos continuos (verde + algunos café) mientras se empuja
+  function spawnThrust() {
+    puffs.push({
+      x: bird.x - 15 * S + rand(-4, 4) * S, y: bird.y + 13 * S + rand(-3, 5) * S,
+      vx: -rand(70, 115) * S, vy: rand(45, 90) * S,
+      age: 0, life: PUFF_LIFE * rand(0.7, 1.0),
+      rot: rand(-0.4, 0.4), vrot: rand(-2.5, 2.5),
+      s0: rand(0.5, 0.8), s1: rand(1.0, 1.45),
+      brown: Math.random() < 0.4, // algo de diarrea café en la propulsión
+    });
   }
   // suelta pedo por DETRÁS (izquierda, mira a la derecha) y ABAJO: se aleja, escala y
   // se desvanece. El mega = más nubes y más grandes (según carga), con algunas CAFÉ
@@ -778,11 +782,6 @@
     // ciclo día→noche por score (suave y monótono): avanza hacia score/SKY_CYCLE
     skyProg += (score / SKY_CYCLE - skyProg) * clamp(dt * 1.5, 0, 1);
     { const tt = skyProg % 1; nightness = clamp(1 - Math.abs(tt - 0.5) / 0.26, 0, 1); }
-    // el mega-pedo se carga con PUNTOS (10 = lleno); estando lleno, MANTENER lo dispara
-    megaCharge = clamp((score - scoreAtLastMega) / CHARGE_POINTS, 0, 1);
-    if (press.down && !press.fired && state === PLAYING && megaCharge >= 1 && (tNow - press.t0) >= HOLD_FIRE_MS) {
-      fireMega(); press.fired = true; scoreAtLastMega = score;
-    }
     // nubes siempre flotan (decoración)
     for (const c of clouds) {
       c.x -= c.spd * S * dt;
@@ -810,8 +809,20 @@
       return;
     }
 
-    // PLAYING
-    bird.vy = Math.min(bird.vy + GRAVITY * S * dt, MAX_FALL * S);
+    // PLAYING — PROPULSIÓN (jetpack): MANTENER con combustible SUSTITUYE la gravedad por
+    // una subida controlada y constante (a THRUST_V), proporcional al tiempo de hold y
+    // gastando el tanque. Soltar = vuelve la gravedad. Sin lanzón brusco.
+    if (press.down && megaCharge > 0) {
+      bird.vy = lerp(bird.vy, THRUST_V * S, clamp(dt * 10, 0, 1)); // sube suave hasta velocidad constante
+      megaCharge = clamp(megaCharge - dt / THRUST_FULL_SEC, 0, 1);
+      bird.pump = Math.max(bird.pump, 0.5);
+      thrustEmit -= dt;
+      if (thrustEmit <= 0) { thrustEmit = 0.04; spawnThrust(); }
+      if (!thrustOn) { thrustOn = true; megaQuip = { age: 0, life: 0.7, msg: MEGA_QUIPS[rand(0, MEGA_QUIPS.length) | 0] }; }
+    } else {
+      thrustOn = false;
+      bird.vy = Math.min(bird.vy + GRAVITY * S * dt, MAX_FALL * S); // gravedad normal
+    }
     bird.y += bird.vy * dt;
 
     // tilt: sube = nariz arriba, cae rápido = nariz abajo (mapea vy → ángulo)
@@ -834,6 +845,7 @@
     for (const p of pipes) {
       if (!p.passed && p.x + PIPE_W * S < bird.x) {
         p.passed = true; score++; playScore();
+        megaCharge = clamp(megaCharge + 1 / CHARGE_POINTS, 0, 1); // +combustible por punto
       }
     }
 
