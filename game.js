@@ -58,11 +58,7 @@
   const BIRD_HIT_R = 19;    // radio de colisión (más chico que el dibujo = justo)
   const READY_FLOAT = 7;    // amplitud del bobbing en la pantalla de inicio
   const PUFF_LIFE = 0.34;   // vida del puff de pedo (s): fade-out en ~340ms
-  const CHARGE_POINTS = 10;    // combustible del jetpack: +1/10 por punto (10 pts = tanque lleno)
-  const THRUST_V = -250;       // velocidad de subida durante el empuje (controlada, menor que un flap)
-  const THRUST_FULL_SEC = 1.6; // cuánto dura la carga llena de empuje continuo (1 uso)
-  const HOLD_ACTIVATE_MS = 160; // hold mínimo para ACTIVAR el mega (un tap rápido NO lo gasta)
-  const VERSION = 'v20';       // se muestra chiquito en el inicio para confirmar build (anti-caché)
+  const VERSION = 'v21';       // se muestra chiquito en el inicio para confirmar build (anti-caché)
 
   // helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -90,12 +86,8 @@
   const bird = { x: 0, y: 0, vy: 0, angle: 0, pump: 0 };
   let pipes = [];
   let puffs = [];           // partículas de pedo (feedback del impulso)
-  let press = { down: false, t0: 0 };  // mega: MANTENER (no tap) para activarlo estando lleno
-  let megaCharge = 0;           // carga 0..1: se ACUMULA con puntos (10 = lleno/habilitado)
-  let megaActive = false;       // true durante el ÚNICO uso (un hold tras estar lleno)
-  let thrustOn = false;         // flanco para el textito al empezar a propulsar
-  let thrustEmit = 0;           // temporizador de la estela de propulsión
-  let megaQuip = { age: 0, life: 0, msg: '' }; // textito cómico de la propulsión
+  let fartCount = 0;            // cuenta de taps → cada 10, un pedo INTENSO (solo cosmético)
+  let megaQuip = { age: 0, life: 0, msg: '' }; // textito cómico del pedo intenso
   let groundX = 0;
   let clouds = [];
   let stars = [];           // estrellas (aparecen de noche)
@@ -113,7 +105,7 @@
     bird.angle = 0;
     pipes = [];
     puffs = [];
-    press.down = false; megaCharge = 0; megaActive = false; thrustOn = false; thrustEmit = 0;
+    fartCount = 0;
     megaQuip.life = 0;
     skyProg = 0;
     nightness = 0;
@@ -165,36 +157,18 @@
   }
 
   // ── input (latencia mínima: actúa en el mismo evento, sin esperar frame) ─────
-  const MEGA_QUIPS = ['¡MEGA PEDO! 💨', '¡TURBO POMPIS!', '¡PROPULSIÓN! 🚀', '¡A LA LUNA!', '¡CAÑONAZO! 💥', '¡SE OYÓ HASTA ALLÁ!'];
-  // tap normal = MISMO impulso de siempre (la física base NO cambia)
+  // textitos cómicos del pedo intenso (cada 10 taps)
+  const MEGA_QUIPS = ['¡PEDOTE! 💨', '¡DIARREA! 💩', '¡QUÉ TRONÓ!', '¡SE OYÓ HASTA ALLÁ!', '¡CAÑONAZO! 💥', '¡GUÁCALA! 🤢'];
+  // tap = MISMO impulso SIEMPRE (NO cambia velocidad ni distancia). Cada 10º tap es un
+  // pedo INTENSO: misma física, pero animación + sonido más fuertes + diarrea café.
   function flap() {
-    bird.vy = FLAP_V * S;
-    bird.pump = 1;          // squash-and-stretch
-    spawnFart(false);
-    playFart(false);
-  }
-  // power "mega-pedo": se MANTIENE presionado para cargar y al soltar dispara, escalado
-  // por la carga. Es decisión del jugador (no automático) → no te quita el control.
-  // MANTENER para usar el mega: SOLO se activa si la carga está LLENA (10 pts), y es
-  // un ÚNICO uso. Soltar = termina y consume la carga (hay que volver a juntar 10).
-  function beginPress() {
-    if (state !== PLAYING) return;
-    press.down = true; press.t0 = tNow; // se mide el hold para distinguir tap de MANTENER
-  }
-  function endPress() {
-    press.down = false;
-    if (megaActive) { megaActive = false; megaCharge = 0; } // un solo uso: se gasta al soltar
-  }
-  // estela de propulsión: chorritos continuos (verde + algunos café) mientras se empuja
-  function spawnThrust() {
-    puffs.push({
-      x: bird.x - 15 * S + rand(-4, 4) * S, y: bird.y + 13 * S + rand(-3, 5) * S,
-      vx: -rand(70, 115) * S, vy: rand(45, 90) * S,
-      age: 0, life: PUFF_LIFE * rand(0.7, 1.0),
-      rot: rand(-0.4, 0.4), vrot: rand(-2.5, 2.5),
-      s0: rand(0.5, 0.8), s1: rand(1.0, 1.45),
-      brown: Math.random() < 0.4, // algo de diarrea café en la propulsión
-    });
+    fartCount++;
+    const intense = fartCount % 10 === 0;
+    bird.vy = FLAP_V * S;            // impulso idéntico para todos (física intacta)
+    bird.pump = intense ? 1.7 : 1;   // squash más marcado en el intenso
+    spawnFart(intense);
+    playFart(intense);
+    if (intense) megaQuip = { age: 0, life: 1.0, msg: MEGA_QUIPS[rand(0, MEGA_QUIPS.length) | 0] };
   }
   // suelta pedo por DETRÁS (izquierda, mira a la derecha) y ABAJO: se aleja, escala y
   // se desvanece. El mega = más nubes y más grandes (según carga), con algunas CAFÉ
@@ -250,23 +224,15 @@
     if (inMuteBtn(px, py)) { toggleMute(); return; }       // tocar el ícono = mute, no vuela
     if (inRankBtn(px, py)) { showRanking(); return; }       // ver ranking, no arranca el juego
     onPress();
-    beginPress(); // mantener presionado = cargar mega-pedo
   }, { passive: false });
-  // soltar (en cualquier lado) = disparar el mega si llegó a cargar
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) =>
-    window.addEventListener(ev, endPress));
-  // teclado: espacio / flecha arriba / W (mantener = cargar; soltar = disparar)
+  // teclado: espacio / flecha arriba / W (un flap por pulsación)
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
       e.preventDefault();
       if (e.repeat) return; // ignorar auto-repeat del SO (un flap por pulsación)
       onPress();
-      beginPress();
     }
   }, { passive: false });
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') endPress();
-  });
 
   // ── audio (WebAudio sintetizado, sin archivos, libre de licencia) ───────────
   let actx = null;
@@ -580,33 +546,6 @@
     }
   }
 
-  // BADGE de carga del SUPER-PEDO: ícono FIJO en la esquina inferior izquierda con un
-  // aro de progreso alrededor del ÍCONO (no de la bombita). Lleno → pulsa + "MANTÉN".
-  function drawCharge() {
-    if (state !== PLAYING || megaCharge <= 0.02) return;
-    const c = megaCharge, ready = c >= 0.999;
-    const cx = 46 * S, cy = H - GROUND_H * S - 44 * S, rad = 21 * S; // fijo en la esquina
-    ctx.save();
-    // disco de fondo
-    ctx.fillStyle = 'rgba(0,0,0,0.42)';
-    ctx.beginPath(); ctx.arc(cx, cy, rad + 6 * S, 0, Math.PI * 2); ctx.fill();
-    // aro: pista + progreso alrededor del ícono
-    ctx.lineWidth = 5 * S; ctx.lineCap = 'round';
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = ready ? '#b4f06a' : '#7ed957';
-    ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + c * Math.PI * 2); ctx.stroke();
-    if (ready) {
-      ctx.globalAlpha = 0.4 + 0.4 * Math.sin(tNow / 110);
-      ctx.lineWidth = 8 * S; ctx.strokeStyle = '#e9ffc4';
-      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-    ctx.restore();
-    text('💩', cx, cy + 1 * S, 22 * S, '#fff'); // ícono de popó en el centro del badge
-    if (ready) text('MANTÉN', cx, cy + rad + 14 * S, 11 * S, '#eaffc4', 'rgba(0,60,0,0.6)');
-  }
-
   // ── render de tubos (procedural estilo clásico, verde con tapa y brillo) ─────
   function drawPipe(p) {
     const gap = (p.gap || PIPE_GAP_BASE) * S, w = PIPE_W * S;
@@ -826,25 +765,8 @@
       return;
     }
 
-    // PLAYING — MEGA-PEDO (jetpack de UN solo uso): solo cuando megaActive (se activó con
-    // carga llena). Mientras se mantiene, SUSTITUYE la gravedad por una subida controlada
-    // y constante (a THRUST_V), proporcional al tiempo de hold, gastando la carga. Sube
-    // suave (sin lanzón). Soltar / agotarse = termina el uso y vuelve la gravedad.
-    // ACTIVAR: solo si está LLENO y se MANTIENE (no un tap rápido → así no se gasta de gratis)
-    if (press.down && !megaActive && megaCharge >= 0.999 && (tNow - press.t0) >= HOLD_ACTIVATE_MS) megaActive = true;
-    if (megaActive && megaCharge > 0) {
-      bird.vy = lerp(bird.vy, THRUST_V * S, clamp(dt * 10, 0, 1)); // sube suave hasta velocidad constante
-      megaCharge = clamp(megaCharge - dt / THRUST_FULL_SEC, 0, 1);
-      bird.pump = Math.max(bird.pump, 0.5);
-      thrustEmit -= dt;
-      if (thrustEmit <= 0) { thrustEmit = 0.04; spawnThrust(); }
-      if (!thrustOn) { thrustOn = true; megaQuip = { age: 0, life: 0.7, msg: MEGA_QUIPS[rand(0, MEGA_QUIPS.length) | 0] }; }
-      if (megaCharge <= 0) megaActive = false; // se agotó el uso
-    } else {
-      thrustOn = false;
-      if (megaActive) megaActive = false; // se agotó/soltó → fin del único uso
-      bird.vy = Math.min(bird.vy + GRAVITY * S * dt, MAX_FALL * S); // gravedad normal
-    }
+    // PLAYING — gravedad normal (la física es idéntica con o sin pedo intenso)
+    bird.vy = Math.min(bird.vy + GRAVITY * S * dt, MAX_FALL * S);
     bird.y += bird.vy * dt;
 
     // tilt: sube = nariz arriba, cae rápido = nariz abajo (mapea vy → ángulo)
@@ -867,7 +789,6 @@
     for (const p of pipes) {
       if (!p.passed && p.x + PIPE_W * S < bird.x) {
         p.passed = true; score++; playScore();
-        if (!megaActive) megaCharge = clamp(Math.round((megaCharge + 1 / CHARGE_POINTS) * CHARGE_POINTS) / CHARGE_POINTS, 0, 1); // acumula carga redondeada (10 pts = exactamente 1)
       }
     }
 
@@ -934,7 +855,6 @@
         '#fff36b', 'rgba(120,60,0,0.6)', 'center', W * 0.9);
       ctx.restore();
     }
-    drawCharge(); // medidor del super-pedo en la esquina (HUD, solo en PLAYING)
     if (state !== OVER) drawMute(); // en OVER manda el overlay HTML
   }
 
