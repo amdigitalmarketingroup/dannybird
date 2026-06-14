@@ -111,6 +111,7 @@
   resetWorld();
 
   function startGame() {
+    hideOver();
     resetWorld();
     state = PLAYING;
     // primer tubo a una distancia cómoda
@@ -139,6 +140,7 @@
       best = score;
       try { localStorage.setItem('dannybird.best', String(best)); } catch (e) { /* sin storage: no persiste */ }
     }
+    showOver(); // overlay HTML: score + entrada de nombre + ranking global + reintentar
   }
 
   // ── input (latencia mínima: actúa en el mismo evento, sin esperar frame) ─────
@@ -151,7 +153,7 @@
     unlockAudio();
     if (state === READY) { startGame(); return; }
     if (state === PLAYING) { flap(); return; }
-    if (state === OVER && performance.now() - overAt > RESTART_DELAY) { state = READY; resetWorld(); }
+    // en OVER el reinicio lo maneja el botón del overlay HTML (no el tap del canvas)
   }
   // botón de mute (esquina sup. der., debajo del notch)
   function muteRect() {
@@ -268,6 +270,83 @@
     if (musicGain) musicGain.gain.value = muted ? 0 : 1;
     unlockAudio(); // por si aún no había contexto
   }
+
+  // ── scoreboard global (mini-API en /api del MISMO dominio → sin CORS) ───────
+  const ovEl = document.getElementById('over');
+  const ovScore = document.getElementById('ovScore');
+  const ovBest = document.getElementById('ovBest');
+  const ovNewbest = document.getElementById('ovNewbest');
+  const ovEntry = document.getElementById('ovEntry');
+  const ovName = document.getElementById('ovName');
+  const ovSave = document.getElementById('ovSave');
+  const ovMsg = document.getElementById('ovMsg');
+  const ovLb = document.getElementById('ovLb');
+  const ovRetry = document.getElementById('ovRetry');
+  let lbSubmitted = false;
+
+  try { ovName.value = (localStorage.getItem('dannybird.name') || '').toUpperCase(); } catch (e) { /* sin storage */ }
+  ovName.addEventListener('input', () => {
+    ovName.value = ovName.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+  });
+
+  const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function renderLeaderboard(scores, meName) {
+    if (!scores || !scores.length) { ovLb.innerHTML = '<li class="over-lb-empty">sé el primero 🐦</li>'; return; }
+    let meDone = false;
+    ovLb.innerHTML = scores.map((s, i) => {
+      const me = !meDone && meName && s.name === meName ? ' lb-me' : '';
+      if (me) meDone = true;
+      return `<li class="lb-rank-${i + 1}${me}"><span class="lb-rank">${i + 1}</span><span class="lb-name">${escapeHtml(s.name)}</span><span class="lb-score">${s.score}</span></li>`;
+    }).join('');
+  }
+  async function fetchLeaderboard(meName) {
+    try {
+      const r = await fetch('/api/scores?limit=10', { cache: 'no-store' });
+      const d = await r.json();
+      renderLeaderboard(d.scores, meName);
+    } catch (e) {
+      ovLb.innerHTML = '<li class="over-lb-empty">no se pudo cargar el ranking</li>';
+    }
+  }
+  function showOver() {
+    ovScore.textContent = String(score);
+    ovBest.textContent = String(best);
+    ovNewbest.classList.toggle('hidden', !newBest);
+    ovMsg.classList.add('hidden'); ovMsg.classList.remove('err');
+    lbSubmitted = false;
+    ovSave.disabled = false; ovName.disabled = false;
+    ovEntry.classList.toggle('hidden', score <= 0); // sin score, no se envía
+    ovLb.innerHTML = '<li class="over-lb-loading">cargando…</li>';
+    ovEl.classList.remove('hidden'); ovEl.setAttribute('aria-hidden', 'false');
+    fetchLeaderboard();
+  }
+  function hideOver() { ovEl.classList.add('hidden'); ovEl.setAttribute('aria-hidden', 'true'); }
+
+  ovSave.addEventListener('click', async () => {
+    if (lbSubmitted) return;
+    const name = ovName.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+    if (!name) { ovMsg.textContent = 'pon tu nombre'; ovMsg.className = 'over-msg err'; ovName.focus(); return; }
+    try { localStorage.setItem('dannybird.name', name); } catch (e) { /* noop */ }
+    ovSave.disabled = true; ovName.disabled = true;
+    ovMsg.textContent = 'guardando…'; ovMsg.className = 'over-msg';
+    try {
+      const r = await fetch('/api/scores', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, score }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'error');
+      lbSubmitted = true;
+      ovMsg.textContent = d.rank ? `¡Guardado! Lugar #${d.rank} 🏆` : '¡Guardado! 🏆';
+      ovMsg.className = 'over-msg';
+      renderLeaderboard(d.scores, name);
+    } catch (e) {
+      ovSave.disabled = false; ovName.disabled = false;
+      ovMsg.textContent = 'no se pudo guardar, reintenta'; ovMsg.className = 'over-msg err';
+    }
+  });
+  ovName.addEventListener('keydown', (e) => { if (e.key === 'Enter') ovSave.click(); });
+  ovRetry.addEventListener('click', () => { hideOver(); state = READY; resetWorld(); });
 
   // ── sprite del jugador (player.png) con fallback procedural ─────────────────
   const sprite = new Image();         // frame 1: alas extendidas/arriba
@@ -505,27 +584,11 @@
       text('toca / espacio', W / 2, H * 0.67, 16 * S, 'rgba(255,255,255,0.85)', 'rgba(0,0,0,0.35)');
       if (best > 0) text('MEJOR: ' + best, W / 2, H * 0.74, 20 * S, '#ffe680', 'rgba(0,0,0,0.45)');
     } else if (state === OVER) {
-      // flash + panel
+      // solo el flash del golpe; el panel (score/nombre/ranking/reintentar) lo dibuja
+      // el overlay HTML (#over) encima, que además aporta su propio oscurecido.
       if (flashA > 0) { ctx.fillStyle = `rgba(255,255,255,${flashA})`; ctx.fillRect(0, 0, W, H); }
-      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, H);
-      const pw = Math.min(W * 0.82, 340 * S), ph = 230 * S, px = (W - pw) / 2, py = H * 0.28;
-      ctx.fillStyle = '#fff7e6'; roundRect(px, py, pw, ph, 22 * S); ctx.fill();
-      ctx.strokeStyle = '#e0c98c'; ctx.lineWidth = 3 * S; roundRect(px, py, pw, ph, 22 * S); ctx.stroke();
-      text('GAME OVER', W / 2, py + 38 * S, 34 * S, '#e07a3a', 'rgba(0,0,0,0.18)', 'center', pw * 0.84);
-      text('SCORE', W / 2 - pw * 0.22, py + 92 * S, 16 * S, '#9a8a66', null);
-      text(String(score), W / 2 - pw * 0.22, py + 122 * S, 40 * S, '#5a4a2a', null);
-      text('MEJOR', W / 2 + pw * 0.22, py + 92 * S, 16 * S, '#9a8a66', null);
-      text(String(best), W / 2 + pw * 0.22, py + 122 * S, 40 * S, '#5a4a2a', null);
-      if (newBest) text('¡NUEVO RÉCORD!', W / 2, py + 158 * S, 16 * S, '#e0a020', null);
-      // botón reintentar (aparece tras el cooldown)
-      if (performance.now() - overAt > RESTART_DELAY) {
-        const pulse = 0.7 + 0.3 * Math.abs(Math.sin(tNow / 380));
-        ctx.globalAlpha = pulse;
-        text('TAP PARA REINTENTAR', W / 2, py + ph + 36 * S, 22 * S, '#fff', 'rgba(0,0,0,0.5)', 'center', W * 0.88);
-        ctx.globalAlpha = 1;
-      }
     }
-    drawMute();
+    if (state !== OVER) drawMute(); // en OVER manda el overlay HTML
   }
 
   function drawMute() {

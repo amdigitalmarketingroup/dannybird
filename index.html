@@ -25,6 +25,32 @@
   <canvas id="game" aria-label="Danny Bird — juego. Toca o presiona espacio para volar."></canvas>
   <noscript>Activa JavaScript para jugar Danny Bird.</noscript>
 
+  <!-- Overlay de Game Over: score + entrada de nombre (5) + ranking global + reintentar.
+       En HTML (no canvas) para tener input nativo de teclado y lista scrolleable. -->
+  <div id="over" class="over hidden" aria-hidden="true">
+    <div class="over-card">
+      <div class="over-title">GAME OVER</div>
+      <div class="over-scores">
+        <div class="over-stat"><span class="over-lbl">SCORE</span><span id="ovScore" class="over-num">0</span></div>
+        <div class="over-stat"><span class="over-lbl">MEJOR</span><span id="ovBest" class="over-num">0</span></div>
+      </div>
+      <div id="ovNewbest" class="over-newbest hidden">¡NUEVO RÉCORD!</div>
+
+      <div id="ovEntry" class="over-entry">
+        <input id="ovName" class="over-input" maxlength="5" placeholder="NOMBRE"
+               autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"
+               aria-label="Tu nombre, máximo 5 letras" />
+        <button id="ovSave" class="over-btn" type="button">GUARDAR</button>
+      </div>
+      <div id="ovMsg" class="over-msg hidden"></div>
+
+      <div class="over-lb-title">🏆 RANKING GLOBAL</div>
+      <ol id="ovLb" class="over-lb"><li class="over-lb-loading">cargando…</li></ol>
+
+      <button id="ovRetry" class="over-btn over-btn-primary" type="button">JUGAR DE NUEVO</button>
+    </div>
+  </div>
+
   <script src="game.js"></script>
   <script>
     // Service worker: registro best-effort, no bloquea el juego si falla.

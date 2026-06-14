@@ -80,3 +80,28 @@ flappy-face/
 │   └── player.png          # ← el sprite del personaje (reemplazable)
 └── icons/                  # iconos PWA (192, 512, apple-touch, favicon)
 ```
+
+## Scoreboard global (ranking)
+
+Backend propio en el VPS (NO Supabase — para no mezclar con datos del negocio),
+aislado y autocontenido:
+
+- **`server/server.mjs`** — mini-API Node (módulo `node:http` + `node:sqlite`). Guarda
+  los scores en un archivo SQLite propio (`scores.db`). Endpoints:
+  - `GET /api/scores?limit=10` → top scores.
+  - `POST /api/scores` `{name, score}` → inserta (nombre sanitizado a ≤5 A-Z0-9, score 0..100000),
+    devuelve `{rank, scores}`. Rate-limit 20/min por IP.
+- Corre con **pm2** (`dannybird-api`) en `172.18.0.1:3210` (solo bridge, no público).
+- **Traefik** lo enruta en `https://dannybird.25ocho.agency/api` (mismo origen que el
+  juego → sin CORS) vía `/root/traefik-dynamic/dannybird-api.yml` (priority 200 sobre el static).
+- ufw: `allow from 172.18.0.0/16 to any port 3210`.
+
+El juego (`game.js`) usa rutas relativas `/api/scores`. En game over: entrada de nombre
+(5 chars) → POST → muestra el ranking global con tu lugar resaltado. El nombre se
+recuerda en `localStorage`.
+
+### Re-deploy del backend
+```bash
+cp server/server.mjs ~/projects/dannybird-api/server.mjs
+pm2 restart dannybird-api
+```

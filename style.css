@@ -39,3 +39,123 @@ body {
   -webkit-tap-highlight-color: transparent;
   outline: none;
 }
+
+/* ── Game Over overlay (HTML, encima del canvas) ───────────────────────────── */
+.hidden { display: none !important; }
+
+.over {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 14px);
+  background: rgba(0, 0, 0, 0.42);
+  /* el overlay SÍ recibe taps (a diferencia del canvas) */
+  touch-action: auto;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow-y: auto;
+}
+.over-card {
+  width: 100%;
+  max-width: 360px;
+  background: #fff7e6;
+  border: 3px solid #e0c98c;
+  border-radius: 22px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  padding: 20px 18px 18px;
+  text-align: center;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.over-title {
+  font-size: 30px;
+  font-weight: 800;
+  color: #e07a3a;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.08);
+}
+.over-scores {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin: 14px 0 6px;
+}
+.over-stat { display: flex; flex-direction: column; }
+.over-lbl { font-size: 13px; font-weight: 700; color: #9a8a66; letter-spacing: 0.06em; }
+.over-num { font-size: 36px; font-weight: 800; color: #5a4a2a; font-variant-numeric: tabular-nums; }
+.over-newbest { font-size: 14px; font-weight: 800; color: #e0a020; margin-bottom: 6px; }
+
+.over-entry { display: flex; gap: 8px; margin: 14px 0 4px; }
+.over-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #5a4a2a;
+  background: #fff;
+  border: 2px solid #e0c98c;
+  border-radius: 12px;
+  padding: 10px 8px;
+  outline: none;
+}
+.over-input:focus { border-color: #7ed957; }
+.over-input::placeholder { color: #cbb88a; letter-spacing: 0.1em; font-weight: 600; }
+
+.over-btn {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #5a4a2a;
+  background: #ffe39a;
+  border: 2px solid #e0c98c;
+  border-radius: 12px;
+  padding: 11px 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease, filter 0.12s ease;
+}
+.over-btn:active { transform: scale(0.96); }
+.over-btn:disabled { opacity: 0.5; cursor: default; }
+.over-btn-primary {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  color: #fff;
+  background: #5bbf3a;
+  border-color: #4e9c2f;
+  font-size: 18px;
+  padding: 13px;
+}
+.over-msg { font-size: 13px; font-weight: 700; color: #5bbf3a; min-height: 18px; margin: 2px 0; }
+.over-msg.err { color: #d9534f; }
+
+.over-lb-title { font-size: 14px; font-weight: 800; color: #9a8a66; margin: 14px 0 8px; letter-spacing: 0.04em; }
+.over-lb {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+  border-top: 1px solid #ece0c0;
+}
+.over-lb li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 6px;
+  font-size: 15px;
+  border-bottom: 1px solid #ece0c0;
+}
+.over-lb .lb-rank { width: 26px; font-weight: 800; color: #b8a574; text-align: right; }
+.over-lb .lb-name { flex: 1; text-align: left; font-weight: 700; color: #5a4a2a; letter-spacing: 0.05em; }
+.over-lb .lb-score { font-weight: 800; color: #5bbf3a; font-variant-numeric: tabular-nums; }
+.over-lb li.lb-me { background: #eafadf; border-radius: 8px; }
+.over-lb li.lb-me .lb-name { color: #3a7a1e; }
+.over-lb-loading, .over-lb-empty { justify-content: center; color: #b8a574; font-weight: 600; }
+.over-lb li.lb-rank-1 .lb-rank { color: #e0a020; }
