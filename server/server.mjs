@@ -18,10 +18,13 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS scores_top ON scores(score DESC, id ASC);
 `);
-// ranking = el MEJOR score de cada nombre (highscore), sin duplicados
-const qTop = db.prepare('SELECT name, MAX(score) AS score FROM scores GROUP BY name ORDER BY score DESC, MIN(id) ASC LIMIT ?');
+// ranking = top scores GLOBALES por partida (un mismo nombre puede aparecer con
+// scores distintos). Agrupo por (name, score) para colapsar SOLO duplicados exactos
+// (mismo nombre + mismo score) y que no haya spam; distintos scores sí se ven.
+const qTop = db.prepare('SELECT name, score FROM scores GROUP BY name, score ORDER BY score DESC, MIN(id) ASC LIMIT ?');
 const qInsert = db.prepare('INSERT INTO scores (name, score) VALUES (?, ?)');
-const qRank = db.prepare('SELECT COUNT(*) + 1 AS rank FROM (SELECT name, MAX(score) AS m FROM scores GROUP BY name) WHERE m > ?');
+// tu lugar = cuántos resultados (name+score únicos) tienen score mayor, +1
+const qRank = db.prepare('SELECT COUNT(*) + 1 AS rank FROM (SELECT name, score FROM scores GROUP BY name, score) WHERE score > ?');
 
 // rate-limit anti-spam por IP: máx 20 envíos / 60s (en memoria, suficiente)
 const hits = new Map();
@@ -72,7 +75,7 @@ const server = createServer((req, res) => {
         if (!n) return send(res, 400, { error: 'name' });
         if (!Number.isFinite(s) || s < 0 || s > 100000) return send(res, 400, { error: 'score' });
         qInsert.run(n, s);
-        return send(res, 201, { ok: true, name: n, score: s, rank: qRank.get(s).rank, scores: qTop.all(10) });
+        return send(res, 201, { ok: true, name: n, score: s, rank: qRank.get(s).rank, scores: qTop.all(5) });
       } catch (e) { console.error('[POST /api/scores]', e.message); return send(res, 400, { error: 'bad' }); }
     });
     return;

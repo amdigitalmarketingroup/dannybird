@@ -304,18 +304,21 @@
   });
 
   const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  function renderLeaderboard(scores, meName) {
+  function renderLeaderboard(scores, meName, meScore) {
     if (!scores || !scores.length) { ovLb.innerHTML = '<li class="over-lb-empty">sé el primero 🐦</li>'; return; }
     let meDone = false;
     ovLb.innerHTML = scores.map((s, i) => {
-      const me = !meDone && meName && s.name === meName ? ' lb-me' : '';
+      // resalta tu entrada: si pasé el score, exactamente nombre+score (la recién
+      // guardada); si no, la primera coincidencia por nombre.
+      const match = meName && s.name === meName && (meScore == null || s.score === meScore);
+      const me = !meDone && match ? ' lb-me' : '';
       if (me) meDone = true;
       return `<li class="lb-rank-${i + 1}${me}"><span class="lb-rank">${i + 1}</span><span class="lb-name">${escapeHtml(s.name)}</span><span class="lb-score">${s.score}</span></li>`;
     }).join('');
   }
   async function fetchLeaderboard(meName) {
     try {
-      const r = await fetch('/api/scores?limit=10', { cache: 'no-store' });
+      const r = await fetch('/api/scores?limit=5', { cache: 'no-store' });
       const d = await r.json();
       renderLeaderboard(d.scores, meName);
     } catch (e) {
@@ -332,7 +335,7 @@
     ovMsg.classList.add('hidden'); ovMsg.classList.remove('err');
     lbSubmitted = false;
     ovSave.disabled = false; ovName.disabled = false;
-    ovEntry.classList.toggle('hidden', best <= 0); // se sube tu MEJOR (highscore), no el run
+    ovEntry.classList.toggle('hidden', score <= 0); // registra el score de ESTA partida (si hizo >0)
     ovRetry.textContent = 'JUGAR DE NUEVO';
     ovLb.innerHTML = '<li class="over-lb-loading">cargando…</li>';
     ovEl.classList.remove('hidden'); ovEl.setAttribute('aria-hidden', 'false');
@@ -363,14 +366,14 @@
     try {
       const r = await fetch('/api/scores', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, score: Math.max(score, best) }), // sube tu MEJOR (highscore)
+        body: JSON.stringify({ name, score }), // registra el score de ESTA partida (board global top 5)
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'error');
       lbSubmitted = true;
       ovMsg.textContent = d.rank ? `¡Guardado! Lugar #${d.rank} 🏆` : '¡Guardado! 🏆';
       ovMsg.className = 'over-msg';
-      renderLeaderboard(d.scores, name);
+      renderLeaderboard(d.scores, name, Math.floor(score)); // resalta tu entrada recién guardada
     } catch (e) {
       ovSave.disabled = false; ovName.disabled = false;
       ovMsg.textContent = 'no se pudo guardar, reintenta'; ovMsg.className = 'over-msg err';

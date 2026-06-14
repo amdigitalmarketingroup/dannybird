@@ -1,6 +1,6 @@
 /* Service worker de Danny Bird — cache-first para que el juego sea instalable y
  * jugable offline. Bump CACHE al cambiar assets para invalidar la versión vieja. */
-const CACHE = 'dannybird-v8';
+const CACHE = 'dannybird-v9';
 const ASSETS = [
   './',
   './index.html',
