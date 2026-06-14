@@ -42,19 +42,29 @@
   const GRAVITY = 1500;     // px/s²
   const FLAP_V = -430;      // px/s (la velocidad que toma al tocar)
   const MAX_FALL = 560;     // px/s (clamp de caída)
-  const PIPE_SPEED = 150;   // px/s (scroll de tubos)
-  const PIPE_GAP = 178;     // hueco entre tubos
-  const PIPE_W = 72;        // ancho de tubo
-  const PIPE_SPACING = 232; // distancia horizontal entre tubos consecutivos
+  const PIPE_SPEED_BASE = 150; // px/s (scroll inicial)
+  const PIPE_SPEED_MAX = 255;  // px/s (tope de velocidad al máximo de dificultad)
+  const PIPE_GAP_BASE = 182;   // hueco inicial entre tubos (accesible)
+  const PIPE_GAP_MIN = 124;    // hueco mínimo (retador pero pasable)
+  const PIPE_W = 72;           // ancho de tubo
+  const PIPE_SPACING = 232;    // distancia horizontal entre tubos consecutivos
+  const DIFF_RAMP = 40;        // a ~40 puntos se alcanza la dificultad máxima
   const GROUND_H = 96;      // alto del suelo
   const BIRD_DRAW_H = 58;   // alto del sprite dibujado
   const BIRD_HIT_R = 19;    // radio de colisión (más chico que el dibujo = justo)
   const READY_FLOAT = 7;    // amplitud del bobbing en la pantalla de inicio
+  const WINGBEAT = 6;       // aleteos por segundo (flutter continuo de las alas)
 
   // helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const lerp = (a, b, t) => a + (b - a) * t;
   const rand = (a, b) => a + Math.random() * (b - a);
+
+  // dificultad progresiva por score: la velocidad SUBE y el hueco BAJA, gradual y
+  // con tope → arranca accesible y se pone retador (lo que pidió Mario).
+  const difficulty = () => clamp(score / DIFF_RAMP, 0, 1);
+  const curSpeed = () => PIPE_SPEED_BASE + difficulty() * (PIPE_SPEED_MAX - PIPE_SPEED_BASE);
+  const curGap = () => PIPE_GAP_BASE - difficulty() * (PIPE_GAP_BASE - PIPE_GAP_MIN);
 
   // ── estado ──────────────────────────────────────────────────────────────────
   const READY = 0, PLAYING = 1, OVER = 2;
@@ -68,7 +78,7 @@
   let overAt = 0;            // timestamp del game over (cooldown anti-restart accidental)
   const RESTART_DELAY = 550; // ms antes de aceptar reinicio
 
-  const bird = { x: 0, y: 0, vy: 0, angle: 0 };
+  const bird = { x: 0, y: 0, vy: 0, angle: 0, wing: 0, pump: 0 };
   let pipes = [];
   let groundX = 0;
   let clouds = [];
@@ -105,11 +115,12 @@
   }
 
   function spawnPipe(x) {
-    const gap = PIPE_GAP * S;
+    const g = curGap();              // hueco actual (unidades de referencia)
+    const gap = g * S;
     const margin = 60 * S;
     const groundY = H - GROUND_H * S;
     const gapY = rand(margin + gap / 2, groundY - margin - gap / 2);
-    pipes.push({ x, gapY, passed: false });
+    pipes.push({ x, gapY, gap: g, passed: false }); // cada tubo guarda SU hueco
   }
 
   function gameOver() {
@@ -129,6 +140,7 @@
   // ── input (latencia mínima: actúa en el mismo evento, sin esperar frame) ─────
   function flap() {
     bird.vy = FLAP_V * S;
+    bird.pump = 1; // aletazo fuerte en el momento del tap
     playFlap();
   }
   function onPress() {
@@ -267,6 +279,13 @@
     ctx.save();
     ctx.translate(bird.x, bird.y);
     ctx.rotate(bird.angle);
+    // aleteo: squash vertical anclado en la cabeza → las alas (abajo) suben/bajan
+    const amp = 0.07 + 0.13 * bird.pump;
+    const sy = 1 + Math.sin(bird.wing * Math.PI * 2) * amp;
+    const sx = 1 - (sy - 1) * 0.4; // compensa el volumen (estira al achatar)
+    ctx.translate(0, -h * 0.16);
+    ctx.scale(sx, sy);
+    ctx.translate(0, h * 0.16);
     if (spriteReady) {
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
@@ -282,7 +301,7 @@
 
   // ── render de tubos (procedural estilo clásico, verde con tapa y brillo) ─────
   function drawPipe(p) {
-    const gap = PIPE_GAP * S, w = PIPE_W * S;
+    const gap = (p.gap || PIPE_GAP_BASE) * S, w = PIPE_W * S;
     const x = p.x, topH = p.gapY - gap / 2, botY = p.gapY + gap / 2;
     const groundY = H - GROUND_H * S;
     const capH = 26 * S, capOver = 5 * S;
@@ -369,6 +388,9 @@
 
   // ── update (fixed step, dt en segundos) ─────────────────────────────────────
   function update(dt) {
+    // aleteo: las alas baten siempre (flutter) y fuerte tras cada tap (pump decae)
+    if (state !== OVER) bird.wing += dt * WINGBEAT;
+    bird.pump = Math.max(0, bird.pump - dt * 3.2);
     // nubes siempre flotan (decoración)
     for (const c of clouds) {
       c.x -= c.spd * S * dt;
@@ -380,7 +402,7 @@
     if (state === READY) {
       bird.y = H * 0.45 + Math.sin(tNow / 280) * READY_FLOAT * S;
       bird.angle = Math.sin(tNow / 280) * 0.08;
-      groundX -= PIPE_SPEED * S * dt;
+      groundX -= PIPE_SPEED_BASE * S * dt;
       return;
     }
     if (state === OVER) {
@@ -404,9 +426,10 @@
     const tgt = clamp(map(bird.vy, FLAP_V * S, MAX_FALL * S, -0.45, 1.4), -0.45, 1.4);
     bird.angle = lerp(bird.angle, tgt, clamp(dt * 12, 0, 1));
 
-    // suelo + tubos scrollean
-    groundX -= PIPE_SPEED * S * dt;
-    for (const p of pipes) p.x -= PIPE_SPEED * S * dt;
+    // suelo + tubos scrollean (la velocidad sube con el score)
+    const sp = curSpeed() * S;
+    groundX -= sp * dt;
+    for (const p of pipes) p.x -= sp * dt;
 
     // spawn por distancia (cadencia clásica ~1.5s)
     const lastX = pipes.length ? pipes[pipes.length - 1].x : -Infinity;
@@ -427,8 +450,9 @@
     const r = BIRD_HIT_R * S;
     if (bird.y + r >= groundY) { bird.y = groundY - r; gameOver(); return; }
     if (bird.y - r < 0) { bird.y = r; bird.vy = 0; } // techo: NO mata (fiel al original), solo topa
-    const gap = PIPE_GAP * S, w = PIPE_W * S;
+    const w = PIPE_W * S;
     for (const p of pipes) {
+      const gap = p.gap * S; // cada tubo usa SU hueco (progresivo)
       if (bird.x + r > p.x && bird.x - r < p.x + w) {
         if (bird.y - r < p.gapY - gap / 2 || bird.y + r > p.gapY + gap / 2) { gameOver(); return; }
       }
